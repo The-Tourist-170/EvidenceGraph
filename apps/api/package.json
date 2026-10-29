@@ -9,6 +9,8 @@
   },
   "dependencies": {
     "@evidencegraph/config": "workspace:*",
+    "@evidencegraph/object-storage": "workspace:*",
+    "@evidencegraph/queue": "workspace:*",
     "@evidencegraph/shared": "workspace:*",
     "zod": "^3.24.2"
   }

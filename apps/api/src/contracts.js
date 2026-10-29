@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  researchEventSchema,
+  researchEventTypeSchema,
+} from "@evidencegraph/queue/contracts";
+
+export { researchEventSchema, researchEventTypeSchema };
 
 export const researchConfigSchema = z
   .object({
@@ -13,6 +19,13 @@ export const createResearchTaskSchema = z
   .object({
     question: z.string().trim().min(10).max(2_000),
     config: researchConfigSchema.default({}),
+    queueOptions: z
+      .object({
+        priority: z.number().int().min(0).max(10).default(0),
+        delayMs: z.number().int().min(0).max(86_400_000).default(0),
+      })
+      .strict()
+      .default({}),
   })
   .strict();
 
@@ -54,7 +67,14 @@ export const taskStatusResponseSchema = z
   })
   .strict();
 
-export const documentStatusSchema = z.enum(["uploaded"]);
+export const documentStatusSchema = z.enum([
+  "uploaded",
+  "queued",
+  "processing",
+  "completed",
+  "failed",
+  "cancelled",
+]);
 
 export const documentSchema = z
   .object({
@@ -66,60 +86,6 @@ export const documentSchema = z
     createdAt: z.string().datetime(),
   })
   .strict();
-
-export const researchEventTypeSchema = z.enum([
-  "task.created",
-  "task.queued",
-  "task.processing",
-  "research.progress",
-  "task.completed",
-  "task.failed",
-  "task.cancelled",
-]);
-
-const researchEventBase = {
-  id: z.number().int().positive(),
-  taskId: z.string().uuid(),
-  timestamp: z.string().datetime(),
-};
-
-const taskStateEvent = (type, status) =>
-  z
-    .object({
-      ...researchEventBase,
-      type: z.literal(type),
-      data: z.object({ status: z.literal(status) }).strict(),
-    })
-    .strict();
-
-export const researchEventSchema = z.discriminatedUnion("type", [
-  taskStateEvent("task.created", "queued"),
-  taskStateEvent("task.queued", "queued"),
-  taskStateEvent("task.processing", "processing"),
-  z
-    .object({
-      ...researchEventBase,
-      type: z.literal("research.progress"),
-      data: z
-        .object({
-          percent: z.number().int().min(0).max(100),
-          message: z.string().min(1),
-        })
-        .strict(),
-    })
-    .strict(),
-  taskStateEvent("task.completed", "completed"),
-  z
-    .object({
-      ...researchEventBase,
-      type: z.literal("task.failed"),
-      data: z
-        .object({ code: z.string().min(1), message: z.string().min(1) })
-        .strict(),
-    })
-    .strict(),
-  taskStateEvent("task.cancelled", "cancelled"),
-]);
 
 export const successEnvelopeSchema = (dataSchema) =>
   z.object({ data: dataSchema }).strict();

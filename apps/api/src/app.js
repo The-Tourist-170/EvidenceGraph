@@ -3,6 +3,7 @@ import { logger } from "@evidencegraph/shared";
 import {
   createResearchTaskSchema,
   documentSchema,
+  documentStatusSchema,
   errorEnvelopeSchema,
   researchResultSchema,
   researchTaskSchema,
@@ -42,7 +43,8 @@ function localIdentity(_request, env) {
 
 function errorResponse(error) {
   const apiError =
-    error instanceof ApiError
+    error instanceof ApiError ||
+    (Number.isInteger(error?.status) && typeof error?.code === "string")
       ? error
       : new ApiError(500, "INTERNAL_ERROR", "An unexpected error occurred.");
   const payload = errorEnvelopeSchema.parse({
@@ -304,6 +306,30 @@ export function createApiHandler({
         status: "ok",
       });
     }
+    if (request.method === "GET" && url.pathname === "/ready") {
+      if (!store.checkReadiness) {
+        return errorResponse(
+          new ApiError(503, "NOT_READY", "API dependencies are not ready."),
+        );
+      }
+      const readiness = await store.checkReadiness();
+      const readinessSchema = z
+        .object({
+          status: z.enum(["ready", "not-ready"]),
+          dependencies: z
+            .object({
+              valkey: z.enum(["ready", "unavailable"]),
+              minio: z.enum(["ready", "unavailable"]),
+            })
+            .strict(),
+        })
+        .strict();
+      return jsonResponse(
+        readinessSchema,
+        readiness,
+        readiness.status === "ready" ? 200 : 503,
+      );
+    }
     if (!url.pathname.startsWith(`${apiBase}/`)) {
       throw new ApiError(404, "NOT_FOUND", "Route not found.");
     }
@@ -320,13 +346,17 @@ export function createApiHandler({
     const tasksPath = `${apiBase}/research-tasks`;
     if (url.pathname === tasksPath && request.method === "POST") {
       const input = await readJson(request, createResearchTaskSchema);
-      const task = store.createTask({ ...input, owner: identity });
+      const task = await store.createTask({
+        ...input,
+        owner: identity,
+        idempotencyKey: request.headers.get("idempotency-key") ?? undefined,
+      });
       return jsonResponse(researchTaskSchema, task, 202);
     }
     if (url.pathname === tasksPath && request.method === "GET") {
       return jsonResponse(
         z.array(researchTaskSchema),
-        store.listTasks(identity),
+        await store.listTasks(identity),
       );
     }
 
@@ -337,33 +367,48 @@ export function createApiHandler({
       const id = taskIdFromPath(decodePathSegment(taskMatch[1]));
       const action = taskMatch[2];
       if (!action && request.method === "GET") {
-        return jsonResponse(researchTaskSchema, store.getTask(id, identity));
+        return jsonResponse(
+          researchTaskSchema,
+          await store.getTask(id, identity),
+        );
       }
       if (action === "status" && request.method === "GET") {
         return jsonResponse(
           taskStatusResponseSchema,
-          store.getTaskStatus(id, identity),
+          await store.getTaskStatus(id, identity),
         );
       }
       if (action === "result" && request.method === "GET") {
         return jsonResponse(
           researchResultSchema,
-          store.getTaskResult(id, identity),
+          await store.getTaskResult(id, identity),
         );
       }
       if (action === "cancel" && request.method === "POST") {
-        return jsonResponse(researchTaskSchema, store.cancelTask(id, identity));
+        return jsonResponse(
+          researchTaskSchema,
+          await store.cancelTask(id, identity),
+        );
       }
       if (action === "retry" && request.method === "POST") {
         return jsonResponse(
           researchTaskSchema,
-          store.retryTask(id, identity),
+          await store.retryTask(id, identity),
           202,
         );
       }
       if (action === "events" && request.method === "GET") {
-        const broker = store.getEvents(id, identity);
-        if (broker.subscriberCount(id) >= broker.maxSubscribers) {
+        const broker = await store.getEvents(id, identity);
+        if (broker.createStreamResponse) {
+          return broker.createStreamResponse({
+            taskId: id,
+            afterId: parseLastEventId(request.headers.get("last-event-id")),
+            isTerminal: () => store.isTaskTerminal(id),
+            heartbeatIntervalMs,
+            signal: request.signal,
+          });
+        }
+        if ((await broker.subscriberCount(id)) >= broker.maxSubscribers) {
           throw new ApiError(
             429,
             "TOO_MANY_EVENT_SUBSCRIBERS",
@@ -389,13 +434,17 @@ export function createApiHandler({
     const documentsPath = `${apiBase}/documents`;
     if (url.pathname === documentsPath && request.method === "POST") {
       const upload = await readUploadedFile(request);
-      const document = store.createDocument({ ...upload, owner: identity });
+      const document = await store.createDocument({
+        ...upload,
+        owner: identity,
+        idempotencyKey: request.headers.get("idempotency-key") ?? undefined,
+      });
       return jsonResponse(documentSchema, document, 201);
     }
     if (url.pathname === documentsPath && request.method === "GET") {
       return jsonResponse(
         z.array(documentSchema),
-        store.listDocuments(identity),
+        await store.listDocuments(identity),
       );
     }
 
@@ -406,19 +455,22 @@ export function createApiHandler({
       const id = taskIdFromPath(decodePathSegment(documentMatch[1]));
       const action = documentMatch[2];
       if (!action && request.method === "GET") {
-        return jsonResponse(documentSchema, store.getDocument(id, identity));
+        return jsonResponse(
+          documentSchema,
+          await store.getDocument(id, identity),
+        );
       }
       if (action === "status" && request.method === "GET") {
-        const document = store.getDocument(id, identity);
+        const document = await store.getDocument(id, identity);
         return jsonResponse(
           z
-            .object({ id: z.string().uuid(), status: z.literal("uploaded") })
+            .object({ id: z.string().uuid(), status: documentStatusSchema })
             .strict(),
           { id: document.id, status: document.status },
         );
       }
       if (action === "content" && request.method === "GET") {
-        const content = store.getDocumentContent(id, identity);
+        const content = await store.getDocumentContent(id, identity);
         return new Response(content.bytes, {
           headers: {
             "Content-Disposition": `attachment; filename="${content.filename}"`,
@@ -428,7 +480,7 @@ export function createApiHandler({
         });
       }
       if (!action && request.method === "DELETE") {
-        store.deleteDocument(id, identity);
+        await store.deleteDocument(id, identity);
         return jsonResponse(
           z.object({ id: z.string().uuid(), deleted: z.literal(true) }),
           {
@@ -454,7 +506,10 @@ export function createApiHandler({
     try {
       response = await dispatch(request, url);
     } catch (error) {
-      if (!(error instanceof ApiError)) {
+      if (
+        !(error instanceof ApiError) &&
+        !(Number.isInteger(error?.status) && typeof error?.code === "string")
+      ) {
         logger.error("Unhandled API error", {
           method: request.method,
           path: url.pathname,

@@ -1,0 +1,17 @@
+{
+  "name": "@evidencegraph/queue",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./contracts": "./src/contracts.js"
+  },
+  "dependencies": {
+    "@evidencegraph/config": "workspace:*",
+    "@evidencegraph/shared": "workspace:*",
+    "bullmq": "^5.0.0",
+    "ioredis": "^5.0.0",
+    "zod": "^3.24.2"
+  }
+}

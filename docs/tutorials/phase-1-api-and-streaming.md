@@ -6,6 +6,8 @@ Phase 1 turns the minimal Bun server into a versioned API for research tasks and
 
 The word **simulated** matters: research results are placeholders, uploaded documents and tasks live only in process memory, and no real queue, worker, database, document parser, or LLM is connected yet. Those integrations belong to later roadmap phases.
 
+This tutorial records the Phase 1 baseline. Phase 2 preserves these HTTP and event contracts but replaces the default runtime store with BullMQ, Valkey, and MinIO; `memory-store.js` remains the fast test adapter. Production worker execution remains deferred to Phase 3.
+
 ## 2. Learning Objectives
 
 After this phase, you should be able to:

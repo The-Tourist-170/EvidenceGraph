@@ -9,6 +9,7 @@
   "scripts": {
     "dev:api": "bun --cwd apps/api dev",
     "test": "bun test",
+    "test:phase2:integration": "RUN_PHASE2_INTEGRATION=1 bun test packages/queue/src/integration.test.js",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

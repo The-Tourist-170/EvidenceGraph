@@ -74,6 +74,28 @@ describe("API envelopes and request validation", () => {
     expect(await response.json()).toEqual({ data: { status: "ok" } });
   });
 
+  test("reports Valkey and MinIO readiness without exposing connection details", async () => {
+    const handleRequest = createApiHandler({
+      store: {
+        async checkReadiness() {
+          return {
+            status: "not-ready",
+            dependencies: { valkey: "ready", minio: "unavailable" },
+          };
+        },
+      },
+    });
+    const response = await handleRequest(new Request("http://localhost/ready"));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      data: {
+        status: "not-ready",
+        dependencies: { valkey: "ready", minio: "unavailable" },
+      },
+    });
+  });
+
   test("rejects protected routes in production until auth is configured", async () => {
     const handleRequest = createApiHandler({ env: { NODE_ENV: "production" } });
     const response = await handleRequest(
@@ -114,11 +136,21 @@ describe("API envelopes and request validation", () => {
         },
       }),
     );
+    const invalidQueueOptions = await handleRequest(
+      jsonRequest(taskPath, {
+        method: "POST",
+        body: {
+          question: "A sufficiently long question?",
+          queueOptions: { priority: 11 },
+        },
+      }),
+    );
 
     expect(wrongType.status).toBe(415);
     expect(malformed.status).toBe(400);
     expect(invalidQuestion.status).toBe(400);
     expect(invalidConfig.status).toBe(400);
+    expect(invalidQueueOptions.status).toBe(400);
     expect(await invalidQuestion.json()).toMatchObject({
       error: { code: "VALIDATION_ERROR" },
     });

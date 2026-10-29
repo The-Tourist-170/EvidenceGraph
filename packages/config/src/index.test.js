@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { getLlmConfig, getRuntimeConfig } from "./index.js";
+import {
+  getLlmConfig,
+  getMinioConfig,
+  getRuntimeConfig,
+  getValkeyConfig,
+} from "./index.js";
 
 describe("runtime configuration", () => {
   test("applies safe development defaults", () => {
@@ -16,6 +21,48 @@ describe("runtime configuration", () => {
   test("rejects an invalid port", () => {
     expect(() => getRuntimeConfig({ PORT: "zero" })).toThrow(
       "Invalid runtime configuration",
+    );
+  });
+});
+
+describe("Valkey configuration", () => {
+  test("provides local-only development defaults", () => {
+    expect(getValkeyConfig({ NODE_ENV: "development" })).toEqual({
+      url: "redis://localhost:6380",
+      password: "local-dev-password",
+    });
+  });
+
+  test("requires explicit credentials in production", () => {
+    expect(() => getValkeyConfig({ NODE_ENV: "production" })).toThrow(
+      "VALKEY_URL, VALKEY_PASSWORD",
+    );
+  });
+
+  test("rejects unsupported URL schemes without exposing credentials", () => {
+    expect(() =>
+      getValkeyConfig({
+        NODE_ENV: "test",
+        VALKEY_URL: "https://cache.example.test",
+        VALKEY_PASSWORD: "secret-value",
+      }),
+    ).toThrow("VALKEY_URL");
+  });
+});
+
+describe("MinIO configuration", () => {
+  test("provides local development settings", () => {
+    expect(getMinioConfig({ NODE_ENV: "development" })).toEqual({
+      endpoint: "http://localhost:9000",
+      accessKeyId: "evidencegraph",
+      secretAccessKey: "local-dev-password",
+      bucket: "evidencegraph-documents",
+    });
+  });
+
+  test("requires explicit object storage credentials in production", () => {
+    expect(() => getMinioConfig({ NODE_ENV: "production" })).toThrow(
+      "MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_BUCKET",
     );
   });
 });
