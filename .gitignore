@@ -1,5 +1,19 @@
 02_langgraph_agent_architecture.svg
+
+# Environment secrets
+.env
+.env.*
+!.env.example
 03_advanced_rag_architecture.svg
 project_info.md
 roadmap.md
+
+# Dependencies and generated output
+node_modules/
+.next/
+coverage/
+out/
+*.tsbuildinfo
+next-env.d.ts
 .commandcode/taste/
+docs/tutorials/

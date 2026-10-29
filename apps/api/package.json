@@ -1,0 +1,14 @@
+{
+  "name": "@evidencegraph/api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.js",
+    "start": "bun src/index.js"
+  },
+  "dependencies": {
+    "@evidencegraph/config": "workspace:*",
+    "@evidencegraph/shared": "workspace:*"
+  }
+}

@@ -1,0 +1,5 @@
+AGENTS.md
+*.svg
+.env.example
+bunfig.toml
+Dockerfile
