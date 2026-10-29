@@ -1,19 +1,8 @@
 import { getRuntimeConfig } from "@evidencegraph/config";
 import { logger } from "@evidencegraph/shared";
+import { createApiHandler } from "./app.js";
 
-/**
- * @param {Request} request
- * @returns {Response}
- */
-export function handleRequest(request) {
-  const url = new URL(request.url);
-
-  if (request.method === "GET" && url.pathname === "/health") {
-    return Response.json({ status: "ok" });
-  }
-
-  return new Response("Not Found", { status: 404 });
-}
+export const handleRequest = createApiHandler();
 
 if (import.meta.main) {
   const config = getRuntimeConfig();

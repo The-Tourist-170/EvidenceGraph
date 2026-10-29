@@ -16,6 +16,7 @@
       "dependencies": {
         "@evidencegraph/config": "workspace:*",
         "@evidencegraph/shared": "workspace:*",
+        "zod": "^3.24.2",
       },
     },
     "apps/web": {
