@@ -13,6 +13,57 @@ const llmSchema = z.object({
   LLM_API_KEY: z.string().min(1),
 });
 
+const workerSchema = z.object({
+  RESEARCH_WORKER_CONCURRENCY: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(32)
+    .default(4),
+  DOCUMENT_WORKER_CONCURRENCY: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(32)
+    .default(2),
+  DOCUMENT_WORKER_TIMEOUT_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(10)
+    .max(1_800)
+    .default(300),
+  WORKER_LOCK_DURATION_MS: z.coerce
+    .number()
+    .int()
+    .min(500)
+    .max(300_000)
+    .default(30_000),
+  WORKER_STALLED_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(500)
+    .max(120_000)
+    .default(30_000),
+  WORKER_CANCEL_POLL_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(25)
+    .max(1_000)
+    .default(100),
+  WORKER_SHUTDOWN_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(300_000)
+    .default(30_000),
+  SIMULATED_STAGE_DELAY_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(5_000)
+    .default(150),
+});
+
 const valkeySchema = z.object({
   VALKEY_URL: z
     .string()
@@ -39,6 +90,7 @@ const minioSchema = z.object({
 /**
  * @typedef {import("zod").infer<typeof runtimeSchema>} RuntimeConfig
  * @typedef {{ baseUrl: string, modelName: string, apiKey: string }} LlmConfig
+ * @typedef {import("zod").infer<typeof workerSchema>} WorkerConfig
  */
 
 /**
@@ -59,6 +111,32 @@ export function getRuntimeConfig(env = process.env) {
  * @param {Record<string, string | undefined>} [env=process.env]
  * @returns {LlmConfig}
  */
+/**
+ * @param {Record<string, string | undefined>} [env=process.env]
+ * @returns {WorkerConfig}
+ */
+export function getWorkerConfig(env = process.env) {
+  const result = workerSchema.safeParse(env);
+  if (!result.success) {
+    const invalidVariables = result.error.issues.map((issue) =>
+      issue.path.join("."),
+    );
+    throw new Error(
+      `Invalid worker configuration: ${invalidVariables.join(", ")}.`,
+    );
+  }
+  return {
+    researchConcurrency: result.data.RESEARCH_WORKER_CONCURRENCY,
+    documentConcurrency: result.data.DOCUMENT_WORKER_CONCURRENCY,
+    documentTimeoutSeconds: result.data.DOCUMENT_WORKER_TIMEOUT_SECONDS,
+    lockDurationMs: result.data.WORKER_LOCK_DURATION_MS,
+    stalledIntervalMs: result.data.WORKER_STALLED_INTERVAL_MS,
+    cancellationPollIntervalMs: result.data.WORKER_CANCEL_POLL_INTERVAL_MS,
+    shutdownTimeoutMs: result.data.WORKER_SHUTDOWN_TIMEOUT_MS,
+    simulatedStageDelayMs: result.data.SIMULATED_STAGE_DELAY_MS,
+  };
+}
+
 export function getValkeyConfig(env = process.env) {
   if (env.NODE_ENV === "production") {
     const missing = ["VALKEY_URL", "VALKEY_PASSWORD"].filter(

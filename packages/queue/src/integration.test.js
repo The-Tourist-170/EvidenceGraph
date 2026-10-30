@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { Worker } from "bullmq";
+import { UnrecoverableError, Worker } from "bullmq";
 import { getMinioConfig, getValkeyConfig } from "@evidencegraph/config";
 import { createObjectStorage } from "../../object-storage/src/index.js";
 import { createApiHandler } from "../../../apps/api/src/app.js";
@@ -11,6 +11,7 @@ import {
   documentIngestionQueueName,
   researchQueueName,
   workerConcurrency,
+  taskCancellationKey,
 } from "./index.js";
 
 const integrationEnabled = process.env.RUN_PHASE2_INTEGRATION === "1";
@@ -103,9 +104,14 @@ describe("Phase 2 Valkey and MinIO integration", () => {
           message: "Integration worker made progress.",
         });
         if (job.data.question.includes("phase2:hold")) {
-          await new Promise((resolve) => {
-            releaseActiveTask = resolve;
-          });
+          while (
+            (await researchWorkerConnection.exists(
+              taskCancellationKey(job.id),
+            )) === 0
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          throw new UnrecoverableError("TASK_CANCELLED");
         }
         return {
           summary: `Synthetic integration result for: ${job.data.question}`,
@@ -138,11 +144,8 @@ describe("Phase 2 Valkey and MinIO integration", () => {
     ]);
   }, 30_000);
 
-  let releaseActiveTask;
-
   afterAll(async () => {
     if (!integrationEnabled) return;
-    releaseActiveTask?.();
     if (researchWorker) await researchWorker.close();
     if (documentWorker) await documentWorker.close();
     await closeWorkerConnection(researchWorkerConnection);
@@ -269,14 +272,12 @@ describe("Phase 2 Valkey and MinIO integration", () => {
         () => store.getTask(held.id, owner),
         (value) => value.status === "processing",
       );
-      await expect(store.cancelTask(held.id, owner)).rejects.toMatchObject({
-        code: "ACTIVE_CANCELLATION_UNSUPPORTED",
-        status: 409,
-      });
-      releaseActiveTask?.();
+      const cancellationRequest = await store.cancelTask(held.id, owner);
+      expect(cancellationRequest.status).toBe("processing");
+      expect(cancellationRequest.cancellationRequested).toBe(true);
       await waitFor(
         () => store.getTask(held.id, owner),
-        (value) => value.status === "completed",
+        (value) => value.status === "cancelled",
       );
 
       const failOnce = await store.createTask({

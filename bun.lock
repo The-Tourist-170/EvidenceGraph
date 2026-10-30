@@ -37,6 +37,13 @@
     "apps/workers": {
       "name": "@evidencegraph/workers",
       "version": "0.0.1",
+      "dependencies": {
+        "@evidencegraph/config": "workspace:*",
+        "@evidencegraph/object-storage": "workspace:*",
+        "@evidencegraph/queue": "workspace:*",
+        "@evidencegraph/shared": "workspace:*",
+        "bullmq": "^5.81.5",
+      },
     },
     "packages/ai": {
       "name": "@evidencegraph/ai",

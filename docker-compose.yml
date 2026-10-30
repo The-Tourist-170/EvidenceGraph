@@ -91,6 +91,51 @@ services:
       timeout: 5s
       retries: 5
 
+  research-worker:
+    build: .
+    command: ["bun", "--cwd", "apps/workers", "start:research"]
+    restart: unless-stopped
+    stop_grace_period: 6m
+    environment:
+      NODE_ENV: development
+      VALKEY_URL: redis://valkey:6379
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:-local-dev-password}
+      RESEARCH_WORKER_CONCURRENCY: ${RESEARCH_WORKER_CONCURRENCY:-4}
+      WORKER_LOCK_DURATION_MS: ${WORKER_LOCK_DURATION_MS:-30000}
+      WORKER_STALLED_INTERVAL_MS: ${WORKER_STALLED_INTERVAL_MS:-30000}
+      WORKER_CANCEL_POLL_INTERVAL_MS: ${WORKER_CANCEL_POLL_INTERVAL_MS:-100}
+      WORKER_SHUTDOWN_TIMEOUT_MS: ${WORKER_SHUTDOWN_TIMEOUT_MS:-30000}
+      SIMULATED_STAGE_DELAY_MS: ${SIMULATED_STAGE_DELAY_MS:-150}
+    depends_on:
+      valkey:
+        condition: service_healthy
+
+  document-worker:
+    build: .
+    command: ["bun", "--cwd", "apps/workers", "start:documents"]
+    restart: unless-stopped
+    stop_grace_period: 6m
+    environment:
+      NODE_ENV: development
+      VALKEY_URL: redis://valkey:6379
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:-local-dev-password}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-evidencegraph}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-local-dev-password}
+      MINIO_BUCKET: ${MINIO_BUCKET:-evidencegraph-documents}
+      DOCUMENT_WORKER_CONCURRENCY: ${DOCUMENT_WORKER_CONCURRENCY:-2}
+      DOCUMENT_WORKER_TIMEOUT_SECONDS: ${DOCUMENT_WORKER_TIMEOUT_SECONDS:-300}
+      WORKER_LOCK_DURATION_MS: ${WORKER_LOCK_DURATION_MS:-30000}
+      WORKER_STALLED_INTERVAL_MS: ${WORKER_STALLED_INTERVAL_MS:-30000}
+      WORKER_CANCEL_POLL_INTERVAL_MS: ${WORKER_CANCEL_POLL_INTERVAL_MS:-100}
+      WORKER_SHUTDOWN_TIMEOUT_MS: ${WORKER_SHUTDOWN_TIMEOUT_MS:-30000}
+      SIMULATED_STAGE_DELAY_MS: ${SIMULATED_STAGE_DELAY_MS:-150}
+    depends_on:
+      valkey:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
 volumes:
   valkey-data:
   postgres-data:

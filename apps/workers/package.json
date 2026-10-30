@@ -2,5 +2,18 @@
   "name": "@evidencegraph/workers",
   "version": "0.0.1",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "dev:research": "bun --watch src/research-worker.js",
+    "dev:documents": "bun --watch src/document-ingestion-worker.js",
+    "start:research": "bun src/research-worker.js",
+    "start:documents": "bun src/document-ingestion-worker.js"
+  },
+  "dependencies": {
+    "@evidencegraph/config": "workspace:*",
+    "@evidencegraph/object-storage": "workspace:*",
+    "@evidencegraph/queue": "workspace:*",
+    "@evidencegraph/shared": "workspace:*",
+    "bullmq": "^5.81.5"
+  }
 }

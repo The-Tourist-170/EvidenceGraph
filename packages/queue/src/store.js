@@ -98,7 +98,20 @@ function normalizedProgress(progress) {
     typeof progress?.message === "string" && progress.message.length > 0
       ? progress.message.slice(0, 500)
       : "Research is in progress.";
-  return { percent, message };
+  const stage =
+    typeof progress?.stage === "string" && progress.stage.length > 0
+      ? progress.stage.slice(0, 80)
+      : undefined;
+  const executionId =
+    typeof progress?.executionId === "string"
+      ? progress.executionId
+      : undefined;
+  return {
+    percent,
+    message,
+    ...(stage ? { stage } : {}),
+    ...(executionId ? { executionId } : {}),
+  };
 }
 
 function parseTask(fields) {
@@ -114,6 +127,8 @@ function parseTask(fields) {
     fingerprint: fields.fingerprint,
     initializing: fields.initializing === "1",
     flushing: fields.flushing === "1",
+    cancellationRequested: fields.cancellationRequested === "1",
+    ...(fields.executionId ? { executionId: fields.executionId } : {}),
     ...(fields.retryOf ? { retryOf: fields.retryOf } : {}),
     ...(fields.result ? { result: JSON.parse(fields.result) } : {}),
     ...(fields.idempotencyKeyName
@@ -150,6 +165,8 @@ function publicTask(record) {
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     ...(record.retryOf ? { retryOf: record.retryOf } : {}),
+    ...(record.executionId ? { executionId: record.executionId } : {}),
+    ...(record.cancellationRequested ? { cancellationRequested: true } : {}),
     ...(record.result ? { result: record.result } : {}),
   };
 }
@@ -201,6 +218,10 @@ export function createBullMqStore({
     return `evidencegraph:pending-progress:${id}`;
   }
 
+  function cancellationKey(id) {
+    return `evidencegraph:task-cancellation:${id}`;
+  }
+
   function documentKey(id) {
     return `evidencegraph:document:${id}`;
   }
@@ -234,6 +255,8 @@ export function createBullMqStore({
             fingerprint: record.fingerprint,
             initializing: record.initializing ? "1" : "0",
             flushing: record.flushing ? "1" : "0",
+            cancellationRequested: record.cancellationRequested ? "1" : "0",
+            executionId: record.executionId ?? "",
             retryOf: record.retryOf ?? "",
             result: record.result ? JSON.stringify(record.result) : "",
             idempotencyKeyName: record.idempotencyKeyName ?? "",
@@ -358,7 +381,14 @@ export function createBullMqStore({
     };
   }
 
-  async function transitionTask(id, status, eventType, data, result) {
+  async function transitionTask(
+    id,
+    status,
+    eventType,
+    data,
+    result,
+    executionId,
+  ) {
     const record = await readTask(id);
     if (!record) return;
     if (terminalTaskStatuses.has(record.status) && record.status !== status) {
@@ -367,8 +397,10 @@ export function createBullMqStore({
     if (record.status === status && eventType !== "research.progress") return;
     record.status = status;
     record.updatedAt = timestamp();
+    if (status === "completed") record.cancellationRequested = false;
     if (result !== undefined)
       record.result = researchResultSchema.parse(result);
+    if (executionId) record.executionId = executionId;
     await saveRecord("task", record);
     await eventBroker.publish(id, eventType, data, record.updatedAt);
   }
@@ -403,7 +435,11 @@ export function createBullMqStore({
       if (!job) return;
       const state = await job.getState();
       const exhaustedAttempts =
-        state === "failed" && job.attemptsMade >= (job.opts.attempts ?? 1);
+        state === "failed" &&
+        (job.attemptsMade >= (job.opts.attempts ?? 1) ||
+          job.failedReason?.includes("TASK_TIMED_OUT"));
+      const cancellationRequested =
+        type === "failed" && (await redis.exists(cancellationKey(jobId))) === 1;
       if (type === "waiting" || type === "delayed") {
         await transitionTask(jobId, "queued", "task.queued", {
           status: "queued",
@@ -418,6 +454,8 @@ export function createBullMqStore({
           "processing",
           "research.progress",
           normalizedProgress(event.data),
+          undefined,
+          event.data?.executionId,
         );
       } else if (type === "completed") {
         const result = researchResultSchema.parse(job.returnvalue);
@@ -428,10 +466,19 @@ export function createBullMqStore({
           { status: "completed" },
           result,
         );
+        await redis.del(cancellationKey(jobId));
+      } else if (type === "failed" && cancellationRequested) {
+        await transitionTask(jobId, "cancelled", "task.cancelled", {
+          status: "cancelled",
+        });
+        await redis.del(cancellationKey(jobId));
       } else if (type === "failed" && exhaustedAttempts) {
+        const timedOut = job.failedReason?.includes("TASK_TIMED_OUT");
         await transitionTask(jobId, "failed", "task.failed", {
-          code: "TASK_EXECUTION_FAILED",
-          message: "Research task failed after the configured attempts.",
+          code: timedOut ? "TASK_EXECUTION_TIMED_OUT" : "TASK_EXECUTION_FAILED",
+          message: timedOut
+            ? "Research task exceeded its configured execution limit."
+            : "Research task failed after the configured attempts.",
         });
       } else if (type === "failed") {
         await transitionTask(jobId, "queued", "task.queued", {
@@ -470,7 +517,10 @@ export function createBullMqStore({
       if (!job) return;
       const state = await job.getState();
       const exhaustedAttempts =
-        state === "failed" && job.attemptsMade >= (job.opts.attempts ?? 1);
+        state === "failed" &&
+        (job.attemptsMade >= (job.opts.attempts ?? 1) ||
+          job.failedReason?.includes("DOCUMENT_SIZE_MISMATCH") ||
+          job.failedReason?.includes("TASK_TIMED_OUT"));
       if (type === "active") {
         await transitionDocument(jobId, "processing");
       } else if (type === "completed") {
@@ -797,6 +847,13 @@ export function createBullMqStore({
       record = (await readTask(id)) ?? record;
     }
     const state = queueStatus(await job.getState());
+    if (state === "failed" && (await redis.exists(cancellationKey(id))) === 1) {
+      await transitionTask(id, "cancelled", "task.cancelled", {
+        status: "cancelled",
+      });
+      await redis.del(cancellationKey(id));
+      return publicTask((await readTask(id)) ?? record);
+    }
     if (state !== record.status) {
       const eventType = {
         queued: "task.queued",
@@ -804,19 +861,33 @@ export function createBullMqStore({
         completed: "task.completed",
         failed: "task.failed",
       }[state];
+      const timedOut = job.failedReason?.includes("TASK_TIMED_OUT");
       const eventData =
         state === "failed"
-          ? { code: "TASK_EXECUTION_FAILED", message: "Research task failed." }
+          ? {
+              code: timedOut
+                ? "TASK_EXECUTION_TIMED_OUT"
+                : "TASK_EXECUTION_FAILED",
+              message: timedOut
+                ? "Research task exceeded its configured execution limit."
+                : "Research task failed.",
+            }
           : { status: state };
       const result = state === "completed" ? job.returnvalue : undefined;
       await transitionTask(id, state, eventType, eventData, result);
+      if (state === "completed") await redis.del(cancellationKey(id));
     }
     return publicTask((await readTask(id)) ?? record);
   }
 
   async function getTaskStatus(id, owner) {
     const task = await getTask(id, owner);
-    return { id: task.id, status: task.status, updatedAt: task.updatedAt };
+    return {
+      id: task.id,
+      status: task.status,
+      updatedAt: task.updatedAt,
+      ...(task.cancellationRequested ? { cancellationRequested: true } : {}),
+    };
   }
 
   async function getTaskResult(id, owner) {
@@ -846,11 +917,19 @@ export function createBullMqStore({
     }
     const state = await job.getState();
     if (state === "active") {
-      throw new QueueStoreError(
-        409,
-        "ACTIVE_CANCELLATION_UNSUPPORTED",
-        "Active tasks cannot be safely cancelled until worker checkpoints are available.",
+      if (record.cancellationRequested) return publicTask(record);
+      const cancelMarker = cancellationKey(id);
+      await redis.set(cancelMarker, "1", "EX", 900);
+      record.cancellationRequested = true;
+      record.updatedAt = timestamp();
+      await saveRecord("task", record);
+      await eventBroker.publish(
+        id,
+        "task.cancellation_requested",
+        { status: "processing", cancellationRequested: true },
+        record.updatedAt,
       );
+      return publicTask(record);
     }
     if (!["waiting", "delayed", "paused", "waiting-children"].includes(state)) {
       throw new QueueStoreError(

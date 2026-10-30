@@ -4,6 +4,7 @@ import {
   getMinioConfig,
   getRuntimeConfig,
   getValkeyConfig,
+  getWorkerConfig,
 } from "./index.js";
 
 describe("runtime configuration", () => {
@@ -63,6 +64,30 @@ describe("MinIO configuration", () => {
   test("requires explicit object storage credentials in production", () => {
     expect(() => getMinioConfig({ NODE_ENV: "production" })).toThrow(
       "MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_BUCKET",
+    );
+  });
+});
+
+describe("worker configuration", () => {
+  test("provides validated local concurrency and timeout defaults", () => {
+    expect(getWorkerConfig({ NODE_ENV: "development" })).toEqual({
+      researchConcurrency: 4,
+      documentConcurrency: 2,
+      documentTimeoutSeconds: 300,
+      lockDurationMs: 30_000,
+      stalledIntervalMs: 30_000,
+      cancellationPollIntervalMs: 100,
+      shutdownTimeoutMs: 30_000,
+      simulatedStageDelayMs: 150,
+    });
+  });
+
+  test("coerces worker settings and rejects unsafe concurrency", () => {
+    expect(
+      getWorkerConfig({ RESEARCH_WORKER_CONCURRENCY: "8" }).researchConcurrency,
+    ).toBe(8);
+    expect(() => getWorkerConfig({ DOCUMENT_WORKER_CONCURRENCY: "0" })).toThrow(
+      "DOCUMENT_WORKER_CONCURRENCY",
     );
   });
 });

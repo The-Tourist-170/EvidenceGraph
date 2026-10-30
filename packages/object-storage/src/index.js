@@ -66,10 +66,11 @@ export function createObjectStorage({
     );
   }
 
-  async function getObject(key) {
+  async function getObject(key, { signal } = {}) {
     await initialize();
     const result = await s3.send(
       new GetObjectCommand({ Bucket: config.bucket, Key: key }),
+      signal ? { abortSignal: signal } : undefined,
     );
     if (!result.Body) throw new Error("Object storage returned an empty body.");
     return {

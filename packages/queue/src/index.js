@@ -1,4 +1,5 @@
 export { createValkeyConnection } from "./connection.js";
+export { taskCancellationKey } from "./keys.js";
 export {
   documentJobSchema,
   queueOptionsSchema,

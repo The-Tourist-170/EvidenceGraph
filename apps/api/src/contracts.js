@@ -55,6 +55,8 @@ export const researchTaskSchema = z
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
     retryOf: z.string().uuid().optional(),
+    executionId: z.string().uuid().optional(),
+    cancellationRequested: z.boolean().optional(),
     result: researchResultSchema.optional(),
   })
   .strict();
@@ -64,6 +66,7 @@ export const taskStatusResponseSchema = z
     id: z.string().uuid(),
     status: taskStatusSchema,
     updatedAt: z.string().datetime(),
+    cancellationRequested: z.boolean().optional(),
   })
   .strict();
 

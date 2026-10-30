@@ -96,6 +96,41 @@ describe("API envelopes and request validation", () => {
     });
   });
 
+  test("returns 202 until a worker acknowledges active cancellation", async () => {
+    const task = {
+      id: "523e4567-e89b-42d3-a456-426614174000",
+      question: "A sufficiently long worker cancellation question?",
+      config: {
+        depth: "standard",
+        maxSources: 10,
+        maxIterations: 3,
+        maxDurationSeconds: 120,
+      },
+      status: "processing",
+      createdAt: "2026-10-30T00:00:00.000Z",
+      updatedAt: "2026-10-30T00:00:01.000Z",
+      cancellationRequested: true,
+    };
+    const handleRequest = createApiHandler({
+      env: { NODE_ENV: "test" },
+      store: {
+        async cancelTask() {
+          return task;
+        },
+      },
+    });
+    const response = await handleRequest(
+      new Request(`http://localhost${taskPath}/${task.id}/cancel`, {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    const cancellation = await responseData(response);
+    expect(cancellation.status).toBe("processing");
+    expect(cancellation.cancellationRequested).toBe(true);
+  });
+
   test("rejects protected routes in production until auth is configured", async () => {
     const handleRequest = createApiHandler({ env: { NODE_ENV: "production" } });
     const response = await handleRequest(

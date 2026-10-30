@@ -19,6 +19,8 @@ export default [
         ecmaFeatures: { jsx: true },
       },
       globals: {
+        AbortController: "readonly",
+        AbortSignal: "readonly",
         Bun: "readonly",
         File: "readonly",
         FormData: "readonly",

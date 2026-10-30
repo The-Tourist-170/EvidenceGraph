@@ -385,9 +385,11 @@ export function createApiHandler({
         );
       }
       if (action === "cancel" && request.method === "POST") {
+        const task = await store.cancelTask(id, identity);
         return jsonResponse(
           researchTaskSchema,
-          await store.cancelTask(id, identity),
+          task,
+          task.cancellationRequested ? 202 : 200,
         );
       }
       if (action === "retry" && request.method === "POST") {

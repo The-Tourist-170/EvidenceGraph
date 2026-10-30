@@ -52,6 +52,7 @@ export const researchEventTypeSchema = z.enum([
   "task.created",
   "task.queued",
   "task.processing",
+  "task.cancellation_requested",
   "research.progress",
   "task.completed",
   "task.failed",
@@ -69,7 +70,12 @@ const taskStateEvent = (type, status) =>
     .object({
       ...researchEventBase,
       type: z.literal(type),
-      data: z.object({ status: z.literal(status) }).strict(),
+      data: z
+        .object({
+          status: z.literal(status),
+          executionId: z.string().uuid().optional(),
+        })
+        .strict(),
     })
     .strict();
 
@@ -80,11 +86,25 @@ export const researchEventSchema = z.discriminatedUnion("type", [
   z
     .object({
       ...researchEventBase,
+      type: z.literal("task.cancellation_requested"),
+      data: z
+        .object({
+          status: z.literal("processing"),
+          cancellationRequested: z.literal(true),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...researchEventBase,
       type: z.literal("research.progress"),
       data: z
         .object({
           percent: z.number().int().min(0).max(100),
           message: z.string().min(1),
+          stage: z.string().min(1).optional(),
+          executionId: z.string().uuid().optional(),
         })
         .strict(),
     })

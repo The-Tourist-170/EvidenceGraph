@@ -5,6 +5,7 @@
 Phase 2 replaces Phase 1's in-process task simulator with durable BullMQ queues backed by authenticated Valkey. It creates separate research and document-ingestion queues, stores document bytes in MinIO, keeps transitional task/document metadata in Valkey, and forwards validated queue events into replayable SSE streams.
 
 This phase builds **delivery**, not production execution. The API enqueues jobs, but no production worker process consumes them until Phase 3. Test-only workers in the integration suite prove the queue, progress, retry, cancellation, and object-reference contracts. Consequently, production tasks remain queued during Phase 2.
+The historical Phase 2 boundary described above is now followed by Phase 3: separate production workers consume both queues, emit progress, and acknowledge active cancellation. See [the Phase 3 tutorial](./phase-3-background-execution.md) for the current runtime.
 
 MinIO integration was intentionally advanced from Phase 4 because a future worker in a separate process must be able to retrieve file bytes. Phase 4 will add durable database metadata associations and processing policies rather than reimplementing the S3 client.
 
@@ -19,7 +20,7 @@ After this phase, you should be able to:
 - Make API task/document operations idempotent with identity-scoped keys.
 - Bridge BullMQ QueueEvents to a shared, bounded Redis Stream consumed by SSE clients.
 - Distinguish queue-level automatic retries from the API's retry-as-a-new-task contract.
-- Explain why production workers and active cancellation are deferred to Phase 3.
+- Explain the Phase 2 cancellation boundary and the Phase 3 worker acknowledgement added later.
 
 ## 3. Prerequisites
 
@@ -127,7 +128,7 @@ Research submissions and document uploads accept an optional `Idempotency-Key` h
 
 BullMQ states map to the Phase 1 task contract: waiting/delayed → `queued`, active → `processing`, completed → `completed`, and final failure → `failed`. BullMQ retries a failed attempt automatically before the job becomes terminal. The public `POST /research-tasks/:id/retry` contract still creates a **new linked task** (`retryOf`) after final failure.
 
-The cancel route removes waiting/delayed work and writes a cancelled tombstone so history/status remain available. It does not claim that active computation stopped: an already-active job returns `409 ACTIVE_CANCELLATION_UNSUPPORTED`. Phase 3 adds worker checkpoints and cooperative cancellation.
+At the Phase 2 boundary, the cancel route removed waiting/delayed work but returned `409 ACTIVE_CANCELLATION_UNSUPPORTED` for active jobs because no production worker could acknowledge a stop. Phase 3 extends this: active requests return `202` and remain `processing` with `cancellationRequested: true` until a worker observes the Valkey marker and emits the terminal `task.cancelled` event.
 
 ### 5.5 Store document bytes in MinIO and queue references
 
@@ -203,7 +204,7 @@ The expected Phase 2 readiness body is shown above. The API creates the bucket d
 - **API startup times out connecting to Valkey:** Verify host port `6380`, `VALKEY_URL`, `VALKEY_PASSWORD`, and the authenticated `valkey-cli ping` health check.
 - **MinIO reports access denied or missing bucket:** Confirm endpoint, access key, secret, and bucket configuration. Startup creates the bucket only when the credentials have permission.
 - **A research job stays queued:** This is expected in Phase 2's production runtime. Real worker processes are introduced in Phase 3. Integration tests start workers only for verification.
-- **Cancellation returns `409 ACTIVE_CANCELLATION_UNSUPPORTED`:** An active worker cannot be safely stopped without Phase 3 cooperative checkpoints. Waiting/delayed jobs can be cancelled now.
+- **Cancellation remains `processing` after a `202`:** That response only acknowledges the request. The task becomes `cancelled` after a Phase 3 worker sees the Valkey marker and stops at a cooperative checkpoint.
 - **Repeated request returns `409 IDEMPOTENCY_CONFLICT`:** The same key was submitted with a different payload. Use a new key for a genuinely new request.
 - **SSE initially contains only lifecycle events:** Queue progress comes from a worker. Production Phase 2 has no worker, so only queue transitions are expected until Phase 3.
 - **A document appears queued:** The file bytes are already in MinIO; queue processing waits for the Phase 3 ingestion worker.
@@ -241,7 +242,7 @@ No. It delivers jobs, stores uploaded objects, and transports progress events. P
 
 ### How would you explain the phase in an interview?
 
-“I replaced the in-process task simulator with two BullMQ queues on authenticated Valkey, added bounded retries/retention and optional idempotency/priority/delay controls, and moved document bytes to private MinIO objects while queuing only object references. QueueEvents are deduplicated and forwarded to shared Valkey Streams for SSE replay across API instances. I kept workers out of the API phase, documented active-cancel limits, and used real-service integration tests with test-only workers.”
+“I replaced the in-process simulator with two BullMQ queues on authenticated Valkey, bounded retries/retention, idempotency/priority/delay controls, private MinIO objects, and shared replayable SSE. Phase 2 initially rejected active cancellation; Phase 3 adds a cancellation-request state and waits for the worker to acknowledge the stop before reporting `cancelled`.”
 
 ## 10. Phase Summary
 

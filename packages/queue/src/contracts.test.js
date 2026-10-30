@@ -59,6 +59,34 @@ describe("BullMQ payload contracts", () => {
     ).toThrow();
   });
 
+  test("validates cancellation requests and execution IDs in progress events", () => {
+    const executionId = "00000000-0000-4000-8000-000000000002";
+    const cancellationEvent = {
+      id: 2,
+      taskId,
+      timestamp: new Date().toISOString(),
+      type: "task.cancellation_requested",
+      data: { status: "processing", cancellationRequested: true },
+    };
+    expect(researchEventSchema.parse(cancellationEvent)).toEqual(
+      cancellationEvent,
+    );
+
+    const progressEvent = {
+      id: 3,
+      taskId,
+      timestamp: new Date().toISOString(),
+      type: "research.progress",
+      data: {
+        percent: 40,
+        message: "Reviewing evidence.",
+        stage: "evidence-review",
+        executionId,
+      },
+    };
+    expect(researchEventSchema.parse(progressEvent)).toEqual(progressEvent);
+  });
+
   test("requires ingestion jobs to reference an opaque document object key", () => {
     const validDocumentJob = {
       documentId: taskId,
