@@ -12,8 +12,13 @@
   "dependencies": {
     "@evidencegraph/config": "workspace:*",
     "@evidencegraph/object-storage": "workspace:*",
+    "@evidencegraph/persistence": "workspace:*",
     "@evidencegraph/queue": "workspace:*",
     "@evidencegraph/shared": "workspace:*",
-    "bullmq": "^5.81.5"
+    "bullmq": "^5.81.5",
+    "pdfjs-dist": "^6.4.299"
+  },
+  "devDependencies": {
+    "pdf-lib": "^1.17.1"
   }
 }

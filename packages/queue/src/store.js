@@ -21,6 +21,7 @@ const researchResultSchema = z
     claims: z.array(z.string()),
     sourceIds: z.array(z.string()),
     synthetic: z.literal(true),
+    executionId: z.string().uuid().optional(),
   })
   .strict();
 const idempotencyKeySchema = z
@@ -35,16 +36,16 @@ end
 return 0
 `;
 const bufferProgressScript = `
-if redis.call('HGET', KEYS[1], 'initializing') == '1' or
-   redis.call('HGET', KEYS[1], 'flushing') == '1' then
-  redis.call('RPUSH', KEYS[2], ARGV[1])
+if redis.call('EXISTS', KEYS[1]) == 1 or redis.call('EXISTS', KEYS[2]) == 1 then
+  redis.call('RPUSH', KEYS[3], ARGV[1])
+  redis.call('EXPIRE', KEYS[3], ARGV[2])
   return 1
 end
 return 0
 `;
 const drainProgressScript = `
 if redis.call('LLEN', KEYS[2]) == 0 then
-  redis.call('HSET', KEYS[1], 'flushing', '0')
+  redis.call('DEL', KEYS[1])
   return 'done'
 end
 local events = redis.call('LRANGE', KEYS[2], 0, -1)
@@ -199,6 +200,7 @@ function assertOwner(record, owner, kind) {
 export function createBullMqStore({
   runtime,
   objectStorage,
+  repository,
   now = () => new Date(),
 }) {
   const {
@@ -209,6 +211,12 @@ export function createBullMqStore({
     documentEvents,
   } = runtime;
   const eventBroker = createRedisEventBroker({ redis });
+
+  async function publishTaskEvent(taskId, type, data, createdAt) {
+    const event = await eventBroker.publish(taskId, type, data, createdAt);
+    if (repository?.appendTaskEvent) await repository.appendTaskEvent(event);
+    return event;
+  }
 
   function taskKey(id) {
     return `evidencegraph:task:${id}`;
@@ -222,6 +230,44 @@ export function createBullMqStore({
     return `evidencegraph:task-cancellation:${id}`;
   }
 
+  function initializingKey(id) {
+    return `evidencegraph:task-initializing:${id}`;
+  }
+
+  function flushingKey(id) {
+    return `evidencegraph:task-flushing:${id}`;
+  }
+
+  async function markTaskInitializing(id) {
+    await redis
+      .multi()
+      .set(initializingKey(id), "1", "EX", taskRetentionSeconds)
+      .del(flushingKey(id))
+      .exec();
+  }
+
+  async function beginTaskFlush(id) {
+    await redis
+      .multi()
+      .set(flushingKey(id), "1", "EX", taskRetentionSeconds)
+      .del(initializingKey(id))
+      .exec();
+  }
+
+  async function setTaskFlags(id, initializing, flushing) {
+    if (repository?.setTaskFlags) {
+      await repository.setTaskFlags(id, { initializing, flushing });
+      return;
+    }
+    const transaction = redis.multi();
+    transaction.hset(taskKey(id), {
+      initializing: initializing ? "1" : "0",
+      flushing: flushing ? "1" : "0",
+    });
+    transaction.expire(taskKey(id), taskRetentionSeconds);
+    await transaction.exec();
+  }
+
   function documentKey(id) {
     return `evidencegraph:document:${id}`;
   }
@@ -231,14 +277,21 @@ export function createBullMqStore({
   }
 
   async function readTask(id) {
+    if (repository) return repository.getTask(id);
     return parseTask(await redis.hgetall(taskKey(id)));
   }
 
   async function readDocument(id) {
+    if (repository) return repository.getDocument(id);
     return parseDocument(await redis.hgetall(documentKey(id)));
   }
 
   async function saveRecord(kind, record) {
+    if (repository) {
+      return kind === "task"
+        ? repository.saveTask(record)
+        : repository.saveDocument(record);
+    }
     const key = kind === "task" ? taskKey(record.id) : documentKey(record.id);
     const index = indexKey(kind, record.owner);
     const fields =
@@ -286,6 +339,11 @@ export function createBullMqStore({
   }
 
   async function deleteRecord(kind, record) {
+    if (repository) {
+      return kind === "task"
+        ? repository.deleteTask(record)
+        : repository.deleteDocument(record);
+    }
     const key = kind === "task" ? taskKey(record.id) : documentKey(record.id);
     const transaction = redis.multi();
     transaction.del(key);
@@ -326,6 +384,20 @@ export function createBullMqStore({
     }
     const scope = `${kind}:${ownerHash(owner)}:${sha256(parsedKey.data)}`;
     const keyName = `evidencegraph:idempotency:${scope}`;
+    const window = Math.floor(
+      now().getTime() / (idempotencyRetentionSeconds * 1_000),
+    );
+    const resourceId = deterministicUuid(`${scope}:${window}`);
+    if (repository?.reserveIdempotency) {
+      return repository.reserveIdempotency({
+        kind,
+        owner,
+        keyName,
+        fingerprint,
+        id: resourceId,
+        retentionSeconds: idempotencyRetentionSeconds,
+      });
+    }
     const lockName = `${keyName}:lock`;
     const currentValue = await redis.get(keyName);
     if (currentValue) {
@@ -360,11 +432,8 @@ export function createBullMqStore({
         "A request with this idempotency key is still being processed.",
       );
     }
-    const window = Math.floor(
-      now().getTime() / (idempotencyRetentionSeconds * 1_000),
-    );
     return {
-      id: deterministicUuid(`${scope}:${window}`),
+      id: resourceId,
       keyName,
       existing: false,
       async commit(id) {
@@ -398,11 +467,14 @@ export function createBullMqStore({
     record.status = status;
     record.updatedAt = timestamp();
     if (status === "completed") record.cancellationRequested = false;
-    if (result !== undefined)
+    if (result !== undefined) {
       record.result = researchResultSchema.parse(result);
+      if (record.result.executionId)
+        record.executionId = record.result.executionId;
+    }
     if (executionId) record.executionId = executionId;
     await saveRecord("task", record);
-    await eventBroker.publish(id, eventType, data, record.updatedAt);
+    await publishTaskEvent(id, eventType, data, record.updatedAt);
   }
 
   async function transitionDocument(id, status) {
@@ -422,15 +494,21 @@ export function createBullMqStore({
       if (type === "progress") {
         const buffered = await redis.eval(
           bufferProgressScript,
-          2,
-          taskKey(jobId),
+          3,
+          initializingKey(jobId),
+          flushingKey(jobId),
           pendingProgressKey(jobId),
           JSON.stringify(normalizedProgress(event.data)),
+          taskRetentionSeconds,
         );
         if (buffered === 1) return;
         record = await readTask(jobId);
       }
-      if (!record || record.initializing || record.flushing) return;
+      if (
+        !record ||
+        (type !== "progress" && (record.initializing || record.flushing))
+      )
+        return;
       const job = await researchQueue.getJob(jobId);
       if (!job) return;
       const state = await job.getState();
@@ -617,13 +695,14 @@ export function createBullMqStore({
 
   async function finalizeTaskSubmission(record, job) {
     if (record.initializing) {
-      await eventBroker.publish(
+      await markTaskInitializing(record.id);
+      await publishTaskEvent(
         record.id,
         "task.created",
         { status: "queued" },
         record.createdAt,
       );
-      await eventBroker.publish(
+      await publishTaskEvent(
         record.id,
         "task.queued",
         { status: "queued" },
@@ -632,30 +711,32 @@ export function createBullMqStore({
       record.initializing = false;
       record.flushing = true;
       await saveRecord("task", record);
+      await beginTaskFlush(record.id);
+    } else if (record.flushing) {
+      await redis.set(flushingKey(record.id), "1", "EX", taskRetentionSeconds);
     }
 
     while (true) {
       const pending = await redis.eval(
         drainProgressScript,
         2,
-        taskKey(record.id),
+        flushingKey(record.id),
         pendingProgressKey(record.id),
       );
       if (pending === "done") break;
       for (const value of pending) {
-        const progress = JSON.parse(value);
-        record.status = "processing";
-        record.updatedAt = timestamp();
-        await saveRecord("task", record);
-        await eventBroker.publish(
+        const progress = normalizedProgress(JSON.parse(value));
+        await transitionTask(
           record.id,
+          "processing",
           "research.progress",
-          normalizedProgress(progress),
-          record.updatedAt,
+          progress,
+          undefined,
+          progress.executionId,
         );
       }
     }
-    record.flushing = false;
+    await setTaskFlags(record.id, false, false);
 
     let current = (await readTask(record.id)) ?? record;
     const latestJob = (await researchQueue.getJob(record.id)) ?? job;
@@ -671,11 +752,16 @@ export function createBullMqStore({
       completed: "task.completed",
       failed: "task.failed",
     }[state];
+    const timedOut = latestJob.failedReason?.includes("TASK_TIMED_OUT");
     const eventData =
       state === "failed"
         ? {
-            code: "TASK_EXECUTION_FAILED",
-            message: "Research task failed after the configured attempts.",
+            code: timedOut
+              ? "TASK_EXECUTION_TIMED_OUT"
+              : "TASK_EXECUTION_FAILED",
+            message: timedOut
+              ? "Research task exceeded its configured execution limit."
+              : "Research task failed after the configured attempts.",
           }
         : { status: state };
     const result = state === "completed" ? latestJob.returnvalue : undefined;
@@ -760,6 +846,9 @@ export function createBullMqStore({
               "This idempotency key was already used with a different request.",
             );
           }
+          if (existingRecord.initializing) {
+            await markTaskInitializing(record.id);
+          }
           if (existingRecord.initializing || existingRecord.flushing) {
             await finalizeTaskSubmission(existingRecord, job);
           }
@@ -783,6 +872,7 @@ export function createBullMqStore({
 
       await saveRecord("task", record);
       createdResource = true;
+      await markTaskInitializing(record.id);
       job = await researchQueue.add("research", payload, {
         jobId: record.id,
         delay: parsedQueueOptions.delayMs,
@@ -798,6 +888,13 @@ export function createBullMqStore({
       if (createdJob && job) await job.remove().catch(() => {});
       if (createdResource) {
         await deleteRecord("task", record).catch(() => {});
+        await redis
+          .del(
+            initializingKey(record.id),
+            flushingKey(record.id),
+            pendingProgressKey(record.id),
+          )
+          .catch(() => {});
         if (reservation.keyName)
           await redis.del(reservation.keyName).catch(() => {});
       }
@@ -808,6 +905,10 @@ export function createBullMqStore({
   }
 
   async function listTasks(owner) {
+    if (repository) {
+      const records = await repository.listTasks(owner, historyLimit);
+      return Promise.all(records.map((record) => getTask(record.id, owner)));
+    }
     const index = indexKey("task", owner);
     await redis.zremrangebyscore(
       index,
@@ -842,6 +943,7 @@ export function createBullMqStore({
       }
       return publicTask(record);
     }
+    if (record.initializing) await markTaskInitializing(id);
     if (record.initializing || record.flushing) {
       await finalizeTaskSubmission(record, job);
       record = (await readTask(id)) ?? record;
@@ -923,7 +1025,7 @@ export function createBullMqStore({
       record.cancellationRequested = true;
       record.updatedAt = timestamp();
       await saveRecord("task", record);
-      await eventBroker.publish(
+      await publishTaskEvent(
         id,
         "task.cancellation_requested",
         { status: "processing", cancellationRequested: true },
@@ -942,7 +1044,7 @@ export function createBullMqStore({
     record.status = "cancelled";
     record.updatedAt = timestamp();
     await saveRecord("task", record);
-    await eventBroker.publish(
+    await publishTaskEvent(
       id,
       "task.cancelled",
       { status: "cancelled" },
@@ -1085,6 +1187,12 @@ export function createBullMqStore({
   }
 
   async function listDocuments(owner) {
+    if (repository) {
+      const records = await repository.listDocuments(owner, historyLimit);
+      return Promise.all(
+        records.map((record) => getDocument(record.id, owner)),
+      );
+    }
     const ids = await redis.zrevrange(
       indexKey("document", owner),
       0,
@@ -1125,19 +1233,33 @@ export function createBullMqStore({
       }
       await job.remove();
     }
+    if (repository?.deleteDocumentIndexes) {
+      await repository.deleteDocumentIndexes({
+        documentId: record.id,
+        workspaceId: owner.workspaceId,
+        userId: owner.userId,
+      });
+    }
     await objectStorage.deleteObject(record.objectKey);
     await deleteRecord("document", record);
   }
 
   async function checkReadiness() {
-    const results = await Promise.allSettled([
+    const checks = await Promise.allSettled([
       runtime.checkHealth(),
       objectStorage.checkHealth(),
     ]);
     const dependencies = {
-      valkey: results[0].status === "fulfilled" ? "ready" : "unavailable",
-      minio: results[1].status === "fulfilled" ? "ready" : "unavailable",
+      valkey: checks[0].status === "fulfilled" ? "ready" : "unavailable",
+      minio: checks[1].status === "fulfilled" ? "ready" : "unavailable",
     };
+    if (repository?.checkComponents) {
+      Object.assign(dependencies, await repository.checkComponents());
+    } else if (repository?.checkHealth) {
+      const result = await Promise.allSettled([repository.checkHealth()]);
+      dependencies.postgres =
+        result[0].status === "fulfilled" ? "ready" : "unavailable";
+    }
     return {
       status: Object.values(dependencies).every((status) => status === "ready")
         ? "ready"
@@ -1146,12 +1268,32 @@ export function createBullMqStore({
     };
   }
 
+  async function initialize() {
+    await runtime.initialize();
+    if (repository?.initialize)
+      await repository.initialize({ legacyRedis: redis });
+  }
+
   async function close() {
+    let failure;
     try {
       await runtime.close();
-    } finally {
-      objectStorage.close();
+    } catch (error) {
+      failure = error;
     }
+    try {
+      objectStorage.close();
+    } catch (error) {
+      failure ??= error;
+    }
+    if (repository?.close) {
+      try {
+        await repository.close();
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (failure) throw failure;
   }
 
   return {
@@ -1169,7 +1311,7 @@ export function createBullMqStore({
     getTask,
     getTaskResult,
     getTaskStatus,
-    initialize: runtime.initialize,
+    initialize,
     isTaskTerminal,
     listDocuments,
     listTasks,

@@ -37,36 +37,62 @@ describe("worker executors", () => {
     ]);
   });
 
-  test("reads and verifies a MinIO object without extracting text", async () => {
+  test("extracts text, persists stable chunks, and associates the document graph", async () => {
     const bytes = new TextEncoder().encode("Phase 3 fixture");
     const context = createContext();
     let requested;
+    let savedChunks;
+    let graphDocument;
+    const documentId = "00000000-0000-4000-8000-000000000001";
     const result = await executeDocumentIngestion(
       {
         data: {
-          documentId: "00000000-0000-4000-8000-000000000001",
+          documentId,
           filename: "fixture.txt",
-          objectKey: "documents/00000000-0000-4000-8000-000000000001",
+          objectKey: `documents/${documentId}`,
+          mediaType: "text/plain",
           size: bytes.byteLength,
+          owner: { userId: "user-a", workspaceId: "workspace-a" },
         },
       },
       context,
       {
-        async getObject(key, options) {
-          requested = { key, options };
-          return { bytes, mediaType: "text/plain" };
+        objectStorage: {
+          async getObject(key, options) {
+            requested = { key, options };
+            return { bytes, mediaType: "text/plain" };
+          },
+        },
+        persistence: {
+          async saveDocumentChunks(id, chunks) {
+            savedChunks = { id, chunks };
+          },
+        },
+        graphRepository: {
+          async upsertDocument(document) {
+            graphDocument = document;
+          },
         },
       },
     );
 
-    expect(requested.key).toBe(
-      "documents/00000000-0000-4000-8000-000000000001",
-    );
-    expect(result).toEqual({
-      documentId: "00000000-0000-4000-8000-000000000001",
+    expect(requested.key).toBe(`documents/${documentId}`);
+    expect(result).toMatchObject({
+      documentId,
       bytesProcessed: bytes.byteLength,
-      digest: createHash("sha256").update(bytes).digest("hex"),
-      extractedText: false,
+      pageCount: 1,
+      chunkCount: 1,
+      extractedText: true,
+    });
+    expect(result.digest).toBe(
+      createHash("sha256").update(bytes).digest("hex"),
+    );
+    expect(savedChunks.id).toBe(documentId);
+    expect(savedChunks.chunks[0].content).toBe("Phase 3 fixture");
+    expect(graphDocument).toMatchObject({
+      id: documentId,
+      userId: "user-a",
+      workspaceId: "workspace-a",
     });
     expect(context.progress.at(-1).stage).toBe("ingestion-ready");
   });
@@ -85,10 +111,14 @@ describe("worker executors", () => {
         },
         context,
         {
-          getObject: async () => ({
-            bytes: new Uint8Array([1]),
-            mediaType: "text/plain",
-          }),
+          objectStorage: {
+            getObject: async () => ({
+              bytes: new Uint8Array([1]),
+              mediaType: "text/plain",
+            }),
+          },
+          persistence: { saveDocumentChunks: async () => {} },
+          graphRepository: { upsertDocument: async () => {} },
         },
       ),
     ).rejects.toBeInstanceOf(UnrecoverableError);

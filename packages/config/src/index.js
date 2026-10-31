@@ -73,6 +73,41 @@ const valkeySchema = z.object({
   VALKEY_PASSWORD: z.string().min(1).default("local-dev-password"),
 });
 
+const databaseSchema = z.object({
+  DATABASE_URL: z
+    .string()
+    .url()
+    .refine((value) =>
+      ["postgres:", "postgresql:"].includes(new URL(value).protocol),
+    )
+    .default(
+      "postgres://evidencegraph:local-dev-password@localhost:5433/evidencegraph",
+    ),
+});
+
+const qdrantSchema = z.object({
+  QDRANT_URL: z
+    .string()
+    .url()
+    .refine((value) => ["http:", "https:"].includes(new URL(value).protocol))
+    .default("http://localhost:6335"),
+  QDRANT_API_KEY: z.string().min(1).optional(),
+  EMBEDDING_DIMENSIONS: z.coerce.number().int().min(1).max(4096).default(1536),
+});
+
+const neo4jSchema = z.object({
+  NEO4J_URI: z
+    .string()
+    .url()
+    .refine((value) =>
+      ["bolt:", "neo4j:", "neo4j+s:", "neo4j+ssc:"].includes(
+        new URL(value).protocol,
+      ),
+    )
+    .default("bolt://localhost:7688"),
+  NEO4J_AUTH: z.string().min(3).default("neo4j/local-dev-password"),
+});
+
 const minioSchema = z.object({
   MINIO_ENDPOINT: z
     .string()
@@ -91,6 +126,9 @@ const minioSchema = z.object({
  * @typedef {import("zod").infer<typeof runtimeSchema>} RuntimeConfig
  * @typedef {{ baseUrl: string, modelName: string, apiKey: string }} LlmConfig
  * @typedef {import("zod").infer<typeof workerSchema>} WorkerConfig
+ * @typedef {{ url: string }} DatabaseConfig
+ * @typedef {{ url: string, apiKey?: string, dimensions: number }} QdrantConfig
+ * @typedef {{ uri: string, username: string, password: string }} Neo4jConfig
  */
 
 /**
@@ -107,10 +145,6 @@ export function getRuntimeConfig(env = process.env) {
   return result.data;
 }
 
-/**
- * @param {Record<string, string | undefined>} [env=process.env]
- * @returns {LlmConfig}
- */
 /**
  * @param {Record<string, string | undefined>} [env=process.env]
  * @returns {WorkerConfig}
@@ -162,6 +196,74 @@ export function getValkeyConfig(env = process.env) {
   };
 }
 
+/**
+ * @param {Record<string, string | undefined>} [env=process.env]
+ * @returns {DatabaseConfig}
+ */
+export function getDatabaseConfig(env = process.env) {
+  if (env.NODE_ENV === "production" && !env.DATABASE_URL) {
+    throw new Error("Missing database configuration: DATABASE_URL.");
+  }
+  const result = databaseSchema.safeParse(env);
+  if (!result.success) {
+    throw new Error("Invalid database configuration: DATABASE_URL.");
+  }
+  return { url: result.data.DATABASE_URL };
+}
+
+/**
+ * @param {Record<string, string | undefined>} [env=process.env]
+ * @returns {QdrantConfig}
+ */
+export function getQdrantConfig(env = process.env) {
+  if (env.NODE_ENV === "production" && !env.QDRANT_URL) {
+    throw new Error("Missing vector database configuration: QDRANT_URL.");
+  }
+  const result = qdrantSchema.safeParse(env);
+  if (!result.success) {
+    const invalid = result.error.issues.map((issue) => issue.path.join("."));
+    throw new Error(
+      `Invalid vector database configuration: ${invalid.join(", ")}.`,
+    );
+  }
+  return {
+    url: result.data.QDRANT_URL,
+    apiKey: result.data.QDRANT_API_KEY,
+    dimensions: result.data.EMBEDDING_DIMENSIONS,
+  };
+}
+
+/**
+ * @param {Record<string, string | undefined>} [env=process.env]
+ * @returns {Neo4jConfig}
+ */
+export function getNeo4jConfig(env = process.env) {
+  if (env.NODE_ENV === "production") {
+    const missing = ["NEO4J_URI", "NEO4J_AUTH"].filter((key) => !env[key]);
+    if (missing.length > 0) {
+      throw new Error(
+        `Missing graph database configuration: ${missing.join(", ")}.`,
+      );
+    }
+  }
+  const result = neo4jSchema.safeParse(env);
+  if (!result.success) {
+    const invalid = result.error.issues.map((issue) => issue.path.join("."));
+    throw new Error(
+      `Invalid graph database configuration: ${invalid.join(", ")}.`,
+    );
+  }
+  const separator = result.data.NEO4J_AUTH.indexOf("/");
+  if (separator < 1 || separator === result.data.NEO4J_AUTH.length - 1) {
+    throw new Error("Invalid graph database configuration: NEO4J_AUTH.");
+  }
+  return {
+    uri: result.data.NEO4J_URI,
+    username: result.data.NEO4J_AUTH.slice(0, separator),
+    password: result.data.NEO4J_AUTH.slice(separator + 1),
+  };
+}
+
 export function getMinioConfig(env = process.env) {
   if (env.NODE_ENV === "production") {
     const missing = [
@@ -194,6 +296,10 @@ export function getMinioConfig(env = process.env) {
   };
 }
 
+/**
+ * @param {Record<string, string | undefined>} [env=process.env]
+ * @returns {LlmConfig}
+ */
 export function getLlmConfig(env = process.env) {
   const result = llmSchema.safeParse(env);
   if (!result.success) {

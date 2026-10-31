@@ -70,6 +70,9 @@ async function removeTaskArtifacts(id) {
   transaction.del(`evidencegraph:event-sequence:${id}`);
   transaction.del(`evidencegraph:event-subscribers:${id}`);
   transaction.del(`evidencegraph:pending-progress:${id}`);
+  transaction.del(`evidencegraph:task-cancellation:${id}`);
+  transaction.del(`evidencegraph:task-initializing:${id}`);
+  transaction.del(`evidencegraph:task-flushing:${id}`);
   if (record.idempotencyKeyName) transaction.del(record.idempotencyKeyName);
   await transaction.exec();
 }

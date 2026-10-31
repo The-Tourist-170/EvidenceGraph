@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  getDatabaseConfig,
   getLlmConfig,
   getMinioConfig,
+  getNeo4jConfig,
+  getQdrantConfig,
   getRuntimeConfig,
   getValkeyConfig,
   getWorkerConfig,
@@ -89,6 +92,61 @@ describe("worker configuration", () => {
     expect(() => getWorkerConfig({ DOCUMENT_WORKER_CONCURRENCY: "0" })).toThrow(
       "DOCUMENT_WORKER_CONCURRENCY",
     );
+  });
+});
+
+describe("persistence and retrieval configuration", () => {
+  test("provides validated local database defaults", () => {
+    expect(getDatabaseConfig({ NODE_ENV: "development" })).toEqual({
+      url: "postgres://evidencegraph:local-dev-password@localhost:5433/evidencegraph",
+    });
+  });
+
+  test("requires a database URL in production", () => {
+    expect(() => getDatabaseConfig({ NODE_ENV: "production" })).toThrow(
+      "DATABASE_URL",
+    );
+  });
+
+  test("loads vector and graph settings without logging credentials", () => {
+    expect(getQdrantConfig({ NODE_ENV: "test" })).toMatchObject({
+      url: "http://localhost:6335",
+      dimensions: 1536,
+    });
+    expect(getNeo4jConfig({ NODE_ENV: "test" })).toEqual({
+      uri: "bolt://localhost:7688",
+      username: "neo4j",
+      password: "local-dev-password",
+    });
+    expect(() =>
+      getNeo4jConfig({ NODE_ENV: "test", NEO4J_AUTH: "invalid" }),
+    ).toThrow("NEO4J_AUTH");
+  });
+});
+
+describe("persistence and retrieval configuration", () => {
+  test("provides local PostgreSQL settings and requires an explicit production URL", () => {
+    expect(getDatabaseConfig({ NODE_ENV: "development" })).toEqual({
+      url: "postgres://evidencegraph:local-dev-password@localhost:5433/evidencegraph",
+    });
+    expect(() => getDatabaseConfig({ NODE_ENV: "production" })).toThrow(
+      "DATABASE_URL",
+    );
+  });
+
+  test("validates Qdrant and Neo4j settings without exposing credentials", () => {
+    expect(getQdrantConfig({ NODE_ENV: "test" })).toMatchObject({
+      url: "http://localhost:6335",
+      dimensions: 1536,
+    });
+    expect(getNeo4jConfig({ NODE_ENV: "test" })).toEqual({
+      uri: "bolt://localhost:7688",
+      username: "neo4j",
+      password: "local-dev-password",
+    });
+    expect(() =>
+      getNeo4jConfig({ NODE_ENV: "test", NEO4J_AUTH: "invalid" }),
+    ).toThrow("NEO4J_AUTH");
   });
 });
 

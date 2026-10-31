@@ -3,3 +3,4 @@ AGENTS.md
 .env.example
 bunfig.toml
 Dockerfile
+packages/persistence/drizzle/

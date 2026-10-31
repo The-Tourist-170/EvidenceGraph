@@ -320,6 +320,9 @@ export function createApiHandler({
             .object({
               valkey: z.enum(["ready", "unavailable"]),
               minio: z.enum(["ready", "unavailable"]),
+              postgres: z.enum(["ready", "unavailable"]).optional(),
+              qdrant: z.enum(["ready", "unavailable"]).optional(),
+              neo4j: z.enum(["ready", "unavailable"]).optional(),
             })
             .strict(),
         })

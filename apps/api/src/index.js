@@ -1,10 +1,12 @@
 import {
+  getDatabaseConfig,
   getMinioConfig,
   getRuntimeConfig,
   getValkeyConfig,
 } from "@evidencegraph/config";
 import { logger } from "@evidencegraph/shared";
 import { createObjectStorage } from "@evidencegraph/object-storage";
+import { createPostgresPersistence } from "@evidencegraph/persistence";
 import { createBullMqStore, createQueueRuntime } from "@evidencegraph/queue";
 import { createApiHandler } from "./app.js";
 
@@ -14,9 +16,20 @@ async function startApi() {
   const runtimeConfig = getRuntimeConfig();
   const queueRuntime = createQueueRuntime(getValkeyConfig());
   const objectStorage = createObjectStorage({ config: getMinioConfig() });
-  const store = createBullMqStore({ runtime: queueRuntime, objectStorage });
+  const persistence = createPostgresPersistence({
+    config: getDatabaseConfig(),
+    env: process.env,
+  });
+  const store = createBullMqStore({
+    runtime: queueRuntime,
+    objectStorage,
+    repository: persistence,
+  });
 
   try {
+    if (runtimeConfig.NODE_ENV !== "production") {
+      await persistence.database.migrate();
+    }
     await Promise.all([store.initialize(), objectStorage.initialize()]);
     const server = Bun.serve({
       port: runtimeConfig.PORT,

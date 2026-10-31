@@ -2,5 +2,22 @@
   "name": "@evidencegraph/persistence",
   "version": "0.0.1",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "db:generate": "drizzle-kit generate --config=drizzle.config.js",
+    "db:migrate": "bun src/migrate.js",
+    "db:seed:dev": "bun src/migrate.js"
+  },
+  "dependencies": {
+    "@evidencegraph/config": "workspace:*",
+    "@evidencegraph/retrieval": "workspace:*",
+    "drizzle-orm": "^0.45.4",
+    "neo4j-driver": "^6.3.0",
+    "postgres": "^4.0.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.11"
+  },
+  "exports": "./src/index.js"
 }

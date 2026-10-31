@@ -1,11 +1,13 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
+  getDatabaseConfig,
   getMinioConfig,
   getValkeyConfig,
   getWorkerConfig,
 } from "@evidencegraph/config";
 import { createObjectStorage } from "@evidencegraph/object-storage";
+import { createPostgresPersistence } from "@evidencegraph/persistence";
 import {
   createBullMqStore,
   createQueueRuntime,
@@ -32,6 +34,7 @@ const taskConfig = {
 const taskIds = [];
 const documentIds = [];
 const extraWorkers = [];
+let persistence;
 let env;
 let workerConfig;
 let runtime;
@@ -40,13 +43,6 @@ let store;
 let api;
 let researchWorker;
 let documentWorker;
-
-function taskIndex() {
-  const digest = createHash("sha256")
-    .update(`${owner.userId}\u0000${owner.workspaceId}`)
-    .digest("hex");
-  return `evidencegraph:task-index:${digest}`;
-}
 
 async function waitFor(read, predicate, timeoutMs = 20_000) {
   const deadline = Date.now() + timeoutMs;
@@ -75,22 +71,22 @@ async function enqueueResearch(question) {
 }
 
 async function removeTaskArtifacts(id) {
-  const record = await runtime.redis.hgetall(`evidencegraph:task:${id}`);
+  const record = await persistence.getTask(id);
   const job = await runtime.researchQueue.getJob(id);
   if (job) await job.remove().catch(() => {});
+  if (record) await persistence.deleteTask(record);
   const transaction = runtime.redis.multi();
   for (const key of [
-    `evidencegraph:task:${id}`,
     `evidencegraph:events:${id}`,
     `evidencegraph:event-sequence:${id}`,
     `evidencegraph:event-subscribers:${id}`,
     `evidencegraph:pending-progress:${id}`,
     `evidencegraph:task-cancellation:${id}`,
+    `evidencegraph:task-initializing:${id}`,
+    `evidencegraph:task-flushing:${id}`,
   ]) {
     transaction.del(key);
   }
-  transaction.zrem(taskIndex(), id);
-  if (record.idempotencyKeyName) transaction.del(record.idempotencyKeyName);
   await transaction.exec();
 }
 
@@ -110,6 +106,9 @@ describe("Phase 3 independent workers", () => {
       NODE_ENV: "test",
       VALKEY_URL: process.env.VALKEY_URL ?? "redis://localhost:6380",
       VALKEY_PASSWORD: process.env.VALKEY_PASSWORD ?? "local-dev-password",
+      DATABASE_URL:
+        process.env.DATABASE_URL ??
+        "postgres://evidencegraph:local-dev-password@localhost:5433/evidencegraph",
       MINIO_ENDPOINT: process.env.MINIO_ENDPOINT ?? "http://localhost:9000",
       MINIO_ACCESS_KEY: process.env.MINIO_ACCESS_KEY ?? "evidencegraph",
       MINIO_SECRET_KEY: process.env.MINIO_SECRET_KEY ?? "local-dev-password",
@@ -121,8 +120,17 @@ describe("Phase 3 independent workers", () => {
     };
     workerConfig = getWorkerConfig(env);
     runtime = createQueueRuntime(getValkeyConfig(env));
+    persistence = createPostgresPersistence({
+      config: getDatabaseConfig(env),
+      env,
+    });
     storage = createObjectStorage({ config: getMinioConfig(env) });
-    store = createBullMqStore({ runtime, objectStorage: storage });
+    store = createBullMqStore({
+      runtime,
+      objectStorage: storage,
+      repository: persistence,
+    });
+    await persistence.database.migrate();
     await Promise.all([store.initialize(), storage.initialize()]);
     api = createApiHandler({ store, env, authenticate: () => owner });
     researchWorker = await startResearchWorker({ env, config: workerConfig });
@@ -193,6 +201,16 @@ describe("Phase 3 independent workers", () => {
       expect(new TextDecoder().decode(download.bytes)).toBe(
         "Phase 3 worker object fixture.",
       );
+      const chunks = await persistence.getDocumentChunks(document.id);
+      expect(chunks.map((chunk) => chunk.content).join(" ")).toContain(
+        "Phase 3 worker object fixture.",
+      );
+      expect(
+        await persistence.graphRepository.getDocumentEntities({
+          documentId: document.id,
+          workspaceId: owner.workspaceId,
+        }),
+      ).toEqual([]);
 
       const active = await enqueueResearch(
         "A longer research question for cooperative cancellation?",
@@ -360,16 +378,20 @@ describe("Phase 3 independent workers", () => {
         30_000,
       );
       expect(recovered.executionId).not.toBe(firstExecution.executionId);
-      const recoveredHistory = await (
-        await store.getEvents(interrupted.id, owner)
-      ).replay(interrupted.id, null);
-      expect(
-        new Set(
-          recoveredHistory.events
-            .filter(({ event }) => event.type === "research.progress")
-            .map(({ event }) => event.data.executionId),
-        ).size,
-      ).toBeGreaterThanOrEqual(2);
+      const recoveredHistory = await waitFor(
+        async () =>
+          (await store.getEvents(interrupted.id, owner)).replay(
+            interrupted.id,
+            null,
+          ),
+        (history) =>
+          new Set(
+            history.events
+              .filter(({ event }) => event.type === "research.progress")
+              .map(({ event }) => event.data.executionId),
+          ).size >= 2,
+      );
+      expect(recoveredHistory.events.length).toBeGreaterThan(0);
       await recoveryWorker.close();
       extraWorkers.splice(extraWorkers.indexOf(recoveryWorker), 1);
     },

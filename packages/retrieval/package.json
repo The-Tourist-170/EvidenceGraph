@@ -2,5 +2,11 @@
   "name": "@evidencegraph/retrieval",
   "version": "0.0.1",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@evidencegraph/config": "workspace:*",
+    "@qdrant/js-client-rest": "1.13.0",
+    "zod": "^3.24.2"
+  },
+  "exports": "./src/index.js"
 }

@@ -43,6 +43,7 @@ export const researchResultSchema = z
     claims: z.array(z.string()),
     sourceIds: z.array(z.string()),
     synthetic: z.literal(true),
+    executionId: z.string().uuid().optional(),
   })
   .strict();
 

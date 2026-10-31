@@ -19,6 +19,7 @@ export function createWorkerRuntime({
   timeoutForJob,
   processor,
   objectStorage,
+  resources = [],
   env = process.env,
   workerConfig: configuredWorker = undefined,
   workerOptions = {},
@@ -62,12 +63,16 @@ export function createWorkerRuntime({
         await context.throwIfCancelled();
         const result = await processor(job, context);
         await context.throwIfCancelled();
+        const tracedResult =
+          result && typeof result === "object"
+            ? { ...result, executionId }
+            : result;
         logger.info("Worker job completed", {
           queue: queueName,
           jobId: job.id,
           executionId,
         });
-        return result;
+        return tracedResult;
       } catch (error) {
         if (timedOutJobs.has(job.id)) {
           throw new UnrecoverableError("TASK_TIMED_OUT");
@@ -179,6 +184,7 @@ export function createWorkerRuntime({
             await closeConnection(cancellationConnection);
             await closeConnection(workerConnection);
             await objectStorage?.close();
+            for (const resource of resources) await resource.close?.();
           }
           logger.info("Worker stopped", {
             queue: queueName,
