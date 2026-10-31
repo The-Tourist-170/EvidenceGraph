@@ -142,6 +142,15 @@ export function createWorkerRuntime({
         : error?.message?.includes("TASK_CANCELLED")
           ? "TASK_CANCELLED"
           : (error?.code ?? "WORKER_JOB_FAILED"),
+      errorName: error?.name,
+      errorMessage:
+        typeof error?.message === "string"
+          ? error.message.slice(0, 500)
+          : undefined,
+      errorStack:
+        typeof error?.stack === "string"
+          ? error.stack.split("\n").slice(0, 4).join(" | ").slice(0, 600)
+          : undefined,
     });
   });
 

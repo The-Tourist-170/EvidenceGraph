@@ -4,5 +4,6 @@ COPY package.json bun.lock ./
 COPY apps apps
 COPY packages packages
 RUN bun install --frozen-lockfile
+RUN printf "" > /app/.env
 EXPOSE 3000
 CMD ["bun", "--cwd", "apps/api", "start"]

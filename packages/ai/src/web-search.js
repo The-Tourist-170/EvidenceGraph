@@ -105,14 +105,13 @@ export function createWebSearchTool({
       : timeoutSignal;
     const started = performance.now();
     try {
-      const result = await mcp.callTool(
-        config.tool,
-        {
-          [config.queryField]: parsed.query,
-          [config.limitField]: parsed.limit,
-        },
-        { timeout: config.timeoutMs, signal: combined },
-      );
+      const args = {};
+      if (config.queryField) args[config.queryField] = parsed.query;
+      if (config.limitField) args[config.limitField] = parsed.limit;
+      const result = await mcp.callTool(config.tool, args, {
+        timeout: config.timeoutMs,
+        signal: combined,
+      });
       const sources = normalizeWebResults(extractToolPayload(result), {
         provider: "mcp",
         tool: config.tool,

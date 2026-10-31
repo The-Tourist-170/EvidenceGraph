@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun --watch src/index.js",
-    "start": "bun src/index.js"
+    "dev": "bun --env-file=../../.env --watch src/index.js",
+    "start": "bun --env-file=../../.env src/index.js"
   },
   "dependencies": {
     "@evidencegraph/auth": "workspace:*",

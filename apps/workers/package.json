@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev:research": "bun --watch src/research-worker.js",
-    "dev:documents": "bun --watch src/document-ingestion-worker.js",
-    "start:research": "bun src/research-worker.js",
-    "start:documents": "bun src/document-ingestion-worker.js"
+    "dev:research": "bun --env-file=../../.env --watch src/research-worker.js",
+    "dev:documents": "bun --env-file=../../.env --watch src/document-ingestion-worker.js",
+    "start:research": "bun --env-file=../../.env src/research-worker.js",
+    "start:documents": "bun --env-file=../../.env src/document-ingestion-worker.js"
   },
   "dependencies": {
     "@evidencegraph/ai": "workspace:*",

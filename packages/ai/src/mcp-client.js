@@ -1,14 +1,26 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import {
+  DEFAULT_INHERITED_ENV_VARS,
+  StdioClientTransport,
+} from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { getMcpSearchConfig } from "@evidencegraph/config";
 import { IntegrationError } from "./errors.js";
 
 export function createMcpTransport(config) {
   if (config.transport === "stdio") {
+    const childEnv = Object.fromEntries(
+      DEFAULT_INHERITED_ENV_VARS.filter((name) => name in process.env).map(
+        (name) => [name, process.env[name]],
+      ),
+    );
+    if (config.token && config.tokenEnv) {
+      childEnv[config.tokenEnv] = config.token;
+    }
     return new StdioClientTransport({
       command: config.command,
       args: config.args,
+      env: childEnv,
       stderr: "ignore",
     });
   }

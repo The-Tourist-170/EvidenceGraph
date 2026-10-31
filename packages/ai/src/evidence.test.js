@@ -57,6 +57,26 @@ describe("evidence normalization", () => {
     ]);
   });
 
+  test("accepts grouped provider shapes such as { data: { web: [...] } }", () => {
+    const sources = normalizeWebResults(
+      {
+        success: true,
+        data: {
+          web: [
+            {
+              url: "https://example.test/grouped",
+              title: "Grouped",
+              description: "Snippet.",
+            },
+          ],
+        },
+      },
+      context,
+    );
+    expect(sources).toHaveLength(1);
+    expect(sources[0].url).toBe("https://example.test/grouped");
+  });
+
   test("rejects unsupported or empty result shapes", () => {
     for (const value of [{ nope: true }, []]) {
       try {

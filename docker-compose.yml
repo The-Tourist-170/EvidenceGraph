@@ -93,9 +93,13 @@ services:
 
   research-worker:
     build: .
+    profiles: ["workers"]
     command: ["bun", "--cwd", "apps/workers", "start:research"]
     restart: unless-stopped
     stop_grace_period: 6m
+    env_file:
+      - path: .env
+        required: false
     environment:
       NODE_ENV: development
       VALKEY_URL: redis://valkey:6379
@@ -112,9 +116,13 @@ services:
 
   document-worker:
     build: .
+    profiles: ["workers"]
     command: ["bun", "--cwd", "apps/workers", "start:documents"]
     restart: unless-stopped
     stop_grace_period: 6m
+    env_file:
+      - path: .env
+        required: false
     environment:
       NODE_ENV: development
       VALKEY_URL: redis://valkey:6379

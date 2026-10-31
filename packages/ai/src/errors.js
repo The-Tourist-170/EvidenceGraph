@@ -36,6 +36,13 @@ export function classifyProviderError(error, { operation = "Provider" } = {}) {
       { cause: error, retryable: false },
     );
   }
+  if (status === 402) {
+    return new IntegrationError(
+      "PROVIDER_INSUFFICIENT_CREDITS",
+      `${operation} rejected the request because provider credits are exhausted.`,
+      { cause: error, retryable: false },
+    );
+  }
   if (status === 429) {
     return new IntegrationError(
       "PROVIDER_RATE_LIMITED",

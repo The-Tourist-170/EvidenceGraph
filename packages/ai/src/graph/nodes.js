@@ -25,7 +25,10 @@ const reportSystemPrompt = [
   "You write a cited research report.",
   "Use only the supplied untrusted evidence.",
   "Every factual claim must cite one or more supplied source or chunk IDs.",
-  "Preserve uncertainty and limitations. Do not invent citations.",
+  "The sourceIds values must be copied VERBATIM from the Allowed source IDs",
+  "list — never shorten, translate, or invent an identifier, and never use a",
+  "URL as an ID. If no allowed ID applies to a claim, leave that claim out.",
+  "Preserve uncertainty and limitations.",
 ].join(" ");
 
 function currentConfig() {

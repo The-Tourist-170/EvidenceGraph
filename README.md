@@ -43,6 +43,12 @@ bun install
 docker compose up -d
 docker compose ps             # all five should be healthy
 
+# Worker containers are opt-in (avoid duplicate consumers with the host
+# workers started below). Only start them instead of terminal 2:
+#   docker compose --profile workers up -d
+# Note: the slim worker image has no npx, so MCP stdio web search requires
+# the host workers; containerized workers need provider values in .env.
+
 # 4. Database schema
 bun run db:migrate
 
@@ -165,6 +171,18 @@ status checklist.
 
 - **Port conflicts** — see the port table above; the `ash-agent` containers on
   this machine own the default ports, do not stop them.
+- **`403 INVALID_ORIGIN` on sign-in/sign-up** — the API process was started
+  before `AUTH_TRUSTED_ORIGINS` existed (restart it), or the browser origin is
+  not allowed. Localhost variants are trusted automatically in development;
+  add LAN origins (e.g. `http://192.168.1.13:3001`) to `AUTH_TRUSTED_ORIGINS`.
+- **Research results are synthetic** — the research worker did not enable real
+  integrations (a duplicate worker without `.env` is consuming the queue, or
+  `AI_INTEGRATIONS_ENABLED` is unset). Stop containerized workers
+  (`docker compose stop research-worker document-worker`) and restart the host
+  workers; their startup logs print `Research integrations initialized`.
+- **`429 RATE_LIMITED`** — the API allows 120 requests per minute per
+  workspace; a stuck UI polling loop or test scripts sharing an identity can
+  exhaust it. Wait a minute or raise `rateLimit` in `createApiHandler`.
 - **`503 AUTH_NOT_CONFIGURED`** — production started without `AUTH_SECRET` /
   `AUTH_URL`, or the API was built without an auth instance.
 - **`WEB_SEARCH_UNAVAILABLE`** — configure `MCP_SEARCH_TRANSPORT` and its

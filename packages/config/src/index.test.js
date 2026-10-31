@@ -235,7 +235,22 @@ describe("external integration configuration", () => {
       tool: "web_search",
       queryField: "query",
       limitField: "limit",
+      tokenEnv: "MCP_SEARCH_TOKEN",
     });
+    expect(
+      getMcpSearchConfig({
+        MCP_SEARCH_TRANSPORT: "stdio",
+        MCP_SEARCH_COMMAND: "server",
+        MCP_SEARCH_TOKEN_ENV: "FIRECRAWL_API_KEY",
+      }).tokenEnv,
+    ).toBe("FIRECRAWL_API_KEY");
+    expect(() =>
+      getMcpSearchConfig({
+        MCP_SEARCH_TRANSPORT: "stdio",
+        MCP_SEARCH_COMMAND: "server",
+        MCP_SEARCH_TOKEN_ENV: "not a valid name",
+      }),
+    ).toThrow("MCP_SEARCH_TOKEN_ENV");
     expect(() => getMcpSearchConfig({ MCP_SEARCH_TRANSPORT: "stdio" })).toThrow(
       "MCP_SEARCH_COMMAND",
     );
@@ -289,12 +304,38 @@ describe("authentication configuration", () => {
     ).toEqual({
       secret: "x".repeat(40),
       url: "http://localhost:3000",
-      trustedOrigins: ["http://localhost:3001", "https://app.example.test"],
+      trustedOrigins: [
+        "http://localhost:3001",
+        "https://app.example.test",
+        "http://127.0.0.1:3001",
+      ],
       enableSignUp: false,
     });
     expect(
       getAuthConfig({ NODE_ENV: "development" }).secret.length,
     ).toBeGreaterThanOrEqual(32);
+  });
+
+  test("adds local web origins in development but never in production", () => {
+    const dev = getAuthConfig({ NODE_ENV: "development" });
+    expect(dev.trustedOrigins).toContain("http://localhost:3001");
+    expect(dev.trustedOrigins).toContain("http://127.0.0.1:3001");
+    const deduped = getAuthConfig({
+      NODE_ENV: "test",
+      AUTH_SECRET: "x".repeat(40),
+      AUTH_TRUSTED_ORIGINS: "http://localhost:3001",
+    }).trustedOrigins;
+    expect(
+      deduped.filter((origin) => origin === "http://localhost:3001"),
+    ).toHaveLength(1);
+
+    const production = getAuthConfig({
+      NODE_ENV: "production",
+      AUTH_SECRET: "x".repeat(40),
+      AUTH_URL: "https://app.example.test",
+      AUTH_TRUSTED_ORIGINS: "https://app.example.test",
+    });
+    expect(production.trustedOrigins).toEqual(["https://app.example.test"]);
   });
 
   test("fails closed in production without an explicit secret", () => {

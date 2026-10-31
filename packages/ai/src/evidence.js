@@ -70,13 +70,18 @@ export function normalizeWebResults(
   raw,
   { provider, tool, retrievedAt, maxResults = 10 },
 ) {
+  const grouped = raw?.data && !Array.isArray(raw.data) ? raw.data : null;
   const results = Array.isArray(raw)
     ? raw
     : Array.isArray(raw?.results)
       ? raw.results
       : Array.isArray(raw?.data)
         ? raw.data
-        : null;
+        : grouped && Array.isArray(grouped.web)
+          ? grouped.web
+          : grouped && Array.isArray(grouped.results)
+            ? grouped.results
+            : null;
   if (!results) {
     throw new IntegrationError(
       "WEB_SEARCH_INVALID_RESULT",

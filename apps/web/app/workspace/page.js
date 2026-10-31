@@ -37,6 +37,15 @@ export default function WorkspacePage() {
     }
   }, []);
 
+  const handleTaskChanged = useCallback((next) => {
+    setTasks((current) =>
+      current.some((task) => task.id === next.id)
+        ? current.map((task) => (task.id === next.id ? next : task))
+        : [next, ...current],
+    );
+    if (next.retryOf) setSelectedId(next.id);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     authApi
@@ -112,11 +121,7 @@ export default function WorkspacePage() {
           {selectedTask ? (
             <TaskDetail
               task={selectedTask}
-              onChanged={(next) =>
-                setTasks((current) =>
-                  current.map((task) => (task.id === next.id ? next : task)),
-                )
-              }
+              onChanged={handleTaskChanged}
               onOpenReport={(id) => setReportTaskId(id)}
             />
           ) : (

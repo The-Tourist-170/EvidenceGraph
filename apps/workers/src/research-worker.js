@@ -7,6 +7,7 @@ import {
 } from "@evidencegraph/ai";
 import { createPostgresPersistence } from "@evidencegraph/persistence";
 import { researchQueueName } from "@evidencegraph/queue";
+import { logger } from "@evidencegraph/shared";
 import { executeResearch } from "./executors/research.js";
 import { startWorkerProcess } from "./worker-runtime.js";
 
@@ -44,6 +45,12 @@ export async function startResearchWorker(options = {}) {
       }),
     };
   }
+  logger.info("Research integrations initialized", {
+    enabled: integrations !== null,
+    ...(integrations
+      ? { capabilities: integrations.available }
+      : { reason: "AI_INTEGRATIONS_ENABLED is false" }),
+  });
   return startWorkerProcess({
     queueName: researchQueueName,
     workerName: "research-worker",

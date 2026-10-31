@@ -9,6 +9,7 @@ import { createEmbeddingClient } from "@evidencegraph/ai";
 import { createObjectStorage } from "@evidencegraph/object-storage";
 import { createPostgresPersistence } from "@evidencegraph/persistence";
 import { documentIngestionQueueName } from "@evidencegraph/queue";
+import { logger } from "@evidencegraph/shared";
 import { executeDocumentIngestion } from "./executors/document-ingestion.js";
 import { startWorkerProcess } from "./worker-runtime.js";
 
@@ -16,9 +17,11 @@ function createEmbeddingClientFromEnv(env) {
   if (!getIntegrationConfig(env).enabled) return null;
   const config = getEmbeddingConfig(env);
   if (!config) {
-    throw new Error(
-      "Missing embedding configuration: EMBEDDING_MODEL_NAME. Set it in your .env file; see .env.example.",
+    logger.warn(
+      "Embedding model is not configured; document chunks will be stored but not indexed in Qdrant.",
+      { requiredVariable: "EMBEDDING_MODEL_NAME" },
     );
+    return null;
   }
   return createEmbeddingClient({ config });
 }

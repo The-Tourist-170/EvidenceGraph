@@ -5,7 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { IntegrationError } from "./errors.js";
-import { createMcpClient } from "./mcp-client.js";
+import { createMcpClient, createMcpTransport } from "./mcp-client.js";
 import {
   createRateLimiter,
   createWebSearchTool,
@@ -180,6 +180,57 @@ describe("web search tool", () => {
     expect(error.code).toBe("PROVIDER_RATE_LIMITED");
     expect(error.retryable).toBe(true);
     expect(error.message).not.toContain("raw provider detail");
+  });
+
+  test("classifies exhausted-credit failures as non-retryable", async () => {
+    const client = {
+      async callTool() {
+        const error = new Error("paid model");
+        error.status = 402;
+        throw error;
+      },
+      async close() {},
+      async listTools() {
+        return [];
+      },
+    };
+    const tool = createWebSearchTool({ config: baseConfig(), client });
+    const error = await tool.search({ query: "credits test" }).catch((v) => v);
+    expect(error.code).toBe("PROVIDER_INSUFFICIENT_CREDITS");
+    expect(error.retryable).toBe(false);
+  });
+
+  test("passes the search token to stdio children under the configured variable", () => {
+    const transport = createMcpTransport(
+      baseConfig({
+        command: "server",
+        args: [],
+        token: "secret-token",
+        tokenEnv: "FIRECRAWL_API_KEY",
+      }),
+    );
+    expect(transport._serverParams.env.FIRECRAWL_API_KEY).toBe("secret-token");
+    expect(transport._serverParams.env.PATH).toBeTruthy();
+  });
+
+  test("omits configured fields that are empty strings", async () => {
+    let received;
+    const client = {
+      async callTool(_name, args) {
+        received = args;
+        return { structuredContent: { results: [{ url: "https://a.test" }] } };
+      },
+      async close() {},
+      async listTools() {
+        return [];
+      },
+    };
+    const tool = createWebSearchTool({
+      config: baseConfig({ limitField: "", tool: "firecrawl_search" }),
+      client,
+    });
+    await tool.search({ query: "field omission probe" });
+    expect(received).toEqual({ query: "field omission probe" });
   });
 
   test("extracts structured and text payloads", () => {

@@ -87,6 +87,10 @@ const mcpSchema = z.object({
   ),
   MCP_SEARCH_URL: optionalUrl,
   MCP_SEARCH_TOKEN: optionalText,
+  MCP_SEARCH_TOKEN_ENV: z
+    .string()
+    .regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
+    .default("MCP_SEARCH_TOKEN"),
   MCP_SEARCH_TOOL: z.string().min(1).default("web_search"),
   MCP_SEARCH_QUERY_FIELD: z.string().min(1).default("query"),
   MCP_SEARCH_LIMIT_FIELD: z.string().min(1).default("limit"),
@@ -539,6 +543,7 @@ export function getMcpSearchConfig(env = process.env) {
     args,
     url: data.MCP_SEARCH_URL,
     token: data.MCP_SEARCH_TOKEN,
+    tokenEnv: data.MCP_SEARCH_TOKEN_ENV,
     tool: data.MCP_SEARCH_TOOL,
     queryField: data.MCP_SEARCH_QUERY_FIELD,
     limitField: data.MCP_SEARCH_LIMIT_FIELD,
@@ -570,10 +575,15 @@ export function getAuthConfig(env = process.env) {
       `Invalid authentication configuration: ${invalid.join(", ")}.`,
     );
   }
-  const trustedOrigins = (result.data.AUTH_TRUSTED_ORIGINS ?? "")
+  const fromEnv = (result.data.AUTH_TRUSTED_ORIGINS ?? "")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
+  const devDefaults =
+    env.NODE_ENV === "production"
+      ? []
+      : ["http://localhost:3001", "http://127.0.0.1:3001"];
+  const trustedOrigins = [...new Set([...fromEnv, ...devDefaults])];
   return {
     secret: result.data.AUTH_SECRET,
     url: result.data.AUTH_URL ?? `http://localhost:${env.PORT ?? 3000}`,
