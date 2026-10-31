@@ -10,6 +10,7 @@
     "start:documents": "bun src/document-ingestion-worker.js"
   },
   "dependencies": {
+    "@evidencegraph/ai": "workspace:*",
     "@evidencegraph/config": "workspace:*",
     "@evidencegraph/object-storage": "workspace:*",
     "@evidencegraph/persistence": "workspace:*",

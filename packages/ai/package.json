@@ -2,5 +2,15 @@
   "name": "@evidencegraph/ai",
   "version": "0.0.1",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@evidencegraph/config": "workspace:*",
+    "@evidencegraph/shared": "workspace:*",
+    "@langchain/core": "^1.3.2",
+    "@langchain/openai": "^1.8.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "langsmith": "^0.11.6",
+    "zod": "^3.25.76"
+  },
+  "exports": "./src/index.js"
 }

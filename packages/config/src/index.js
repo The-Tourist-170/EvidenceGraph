@@ -7,10 +7,109 @@ const runtimeSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
 });
 
+const booleanFlag = z.preprocess((value) => {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes"].includes(normalized)) return true;
+    if (["false", "0", "no", ""].includes(normalized)) return false;
+  }
+  return value;
+}, z.boolean());
+
+const optionalUrl = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z
+    .string()
+    .url()
+    .refine((value) => ["http:", "https:"].includes(new URL(value).protocol))
+    .optional(),
+);
+
+const optionalText = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.string().min(1).optional(),
+);
+
 const llmSchema = z.object({
   LLM_BASE_URL: z.string().url(),
   LLM_MODEL_NAME: z.string().min(1),
   LLM_API_KEY: z.string().min(1),
+  LLM_TEMPERATURE: z.coerce.number().min(0).max(2).default(0),
+  LLM_MAX_OUTPUT_TOKENS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(200_000)
+    .default(4_096),
+  LLM_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(600_000)
+    .default(60_000),
+  LLM_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
+  LLM_COST_PER_MILLION_TOKENS: z.coerce.number().min(0).max(10_000).default(0),
+});
+
+const integrationSchema = z.object({
+  AI_INTEGRATIONS_ENABLED: booleanFlag.default(false),
+});
+
+const embeddingSchema = z.object({
+  EMBEDDING_BASE_URL: optionalUrl,
+  EMBEDDING_MODEL_NAME: optionalText,
+  EMBEDDING_API_KEY: optionalText,
+  EMBEDDING_BATCH_SIZE: z.coerce.number().int().min(1).max(256).default(32),
+});
+
+const rerankSchema = z.object({
+  RERANK_ENDPOINT: optionalUrl,
+  RERANK_MODEL_NAME: optionalText,
+  RERANK_API_KEY: optionalText,
+  RERANK_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(120_000)
+    .default(15_000),
+  RERANK_MAX_CANDIDATES: z.coerce.number().int().min(1).max(1_000).default(50),
+});
+
+const mcpSchema = z.object({
+  MCP_SEARCH_TRANSPORT: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(["stdio", "http"]).optional(),
+  ),
+  MCP_SEARCH_COMMAND: optionalText,
+  MCP_SEARCH_ARGS: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().optional(),
+  ),
+  MCP_SEARCH_URL: optionalUrl,
+  MCP_SEARCH_TOKEN: optionalText,
+  MCP_SEARCH_TOOL: z.string().min(1).default("web_search"),
+  MCP_SEARCH_QUERY_FIELD: z.string().min(1).default("query"),
+  MCP_SEARCH_LIMIT_FIELD: z.string().min(1).default("limit"),
+  MCP_SEARCH_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(120_000)
+    .default(15_000),
+  MCP_SEARCH_RATE_LIMIT_PER_MINUTE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(600)
+    .default(30),
+  MCP_SEARCH_MAX_RESULTS: z.coerce.number().int().min(1).max(50).default(10),
+});
+
+const observabilitySchema = z.object({
+  LANGSMITH_TRACING: booleanFlag.default(false),
+  LANGSMITH_API_KEY: optionalText,
+  LANGSMITH_PROJECT: z.string().min(1).default("evidencegraph"),
+  LANGSMITH_ENDPOINT: optionalUrl,
 });
 
 const workerSchema = z.object({
@@ -314,5 +413,153 @@ export function getLlmConfig(env = process.env) {
     baseUrl: result.data.LLM_BASE_URL,
     modelName: result.data.LLM_MODEL_NAME,
     apiKey: result.data.LLM_API_KEY,
+    temperature: result.data.LLM_TEMPERATURE,
+    maxOutputTokens: result.data.LLM_MAX_OUTPUT_TOKENS,
+    timeoutMs: result.data.LLM_TIMEOUT_MS,
+    maxRetries: result.data.LLM_MAX_RETRIES,
+    costPerMillionTokens: result.data.LLM_COST_PER_MILLION_TOKENS,
+  };
+}
+
+/**
+ * Whether the worker should build real external integrations. Production is
+ * always enabled so a missing provider fails visibly instead of silently
+ * falling back to synthetic output.
+ * @param {Record<string, string | undefined>} [env=process.env]
+ */
+export function getIntegrationConfig(env = process.env) {
+  const result = integrationSchema.safeParse(env);
+  if (!result.success) {
+    throw new Error("Invalid integration configuration.");
+  }
+  return {
+    enabled:
+      env.NODE_ENV === "production" ||
+      result.data.AI_INTEGRATIONS_ENABLED === true,
+  };
+}
+
+/**
+ * @param {Record<string, string | undefined>} [env=process.env]
+ * @returns {{ baseUrl: string, modelName: string, apiKey: string, dimensions: number, batchSize: number } | null}
+ */
+export function getEmbeddingConfig(env = process.env) {
+  const result = embeddingSchema.safeParse(env);
+  if (!result.success) {
+    const invalid = result.error.issues.map((issue) => issue.path.join("."));
+    throw new Error(`Invalid embedding configuration: ${invalid.join(", ")}.`);
+  }
+  if (!result.data.EMBEDDING_MODEL_NAME) return null;
+  const baseUrl = result.data.EMBEDDING_BASE_URL ?? env.LLM_BASE_URL;
+  const apiKey = result.data.EMBEDDING_API_KEY ?? env.LLM_API_KEY;
+  if (!baseUrl || !apiKey) {
+    const missing = [
+      !baseUrl ? "EMBEDDING_BASE_URL (or LLM_BASE_URL)" : null,
+      !apiKey ? "EMBEDDING_API_KEY (or LLM_API_KEY)" : null,
+    ].filter(Boolean);
+    throw new Error(`Missing embedding configuration: ${missing.join(", ")}.`);
+  }
+  const qdrant = qdrantSchema.safeParse(env);
+  if (!qdrant.success) {
+    throw new Error("Invalid embedding configuration: EMBEDDING_DIMENSIONS.");
+  }
+  return {
+    baseUrl,
+    modelName: result.data.EMBEDDING_MODEL_NAME,
+    apiKey,
+    dimensions: qdrant.data.EMBEDDING_DIMENSIONS,
+    batchSize: result.data.EMBEDDING_BATCH_SIZE,
+  };
+}
+
+/**
+ * @param {Record<string, string | undefined>} [env=process.env]
+ * @returns {{ endpoint: string, modelName: string, apiKey?: string, timeoutMs: number, maxCandidates: number } | null}
+ */
+export function getRerankConfig(env = process.env) {
+  const result = rerankSchema.safeParse(env);
+  if (!result.success) {
+    const invalid = result.error.issues.map((issue) => issue.path.join("."));
+    throw new Error(`Invalid rerank configuration: ${invalid.join(", ")}.`);
+  }
+  if (!result.data.RERANK_ENDPOINT || !result.data.RERANK_MODEL_NAME) {
+    return null;
+  }
+  return {
+    endpoint: result.data.RERANK_ENDPOINT,
+    modelName: result.data.RERANK_MODEL_NAME,
+    apiKey: result.data.RERANK_API_KEY,
+    timeoutMs: result.data.RERANK_TIMEOUT_MS,
+    maxCandidates: result.data.RERANK_MAX_CANDIDATES,
+  };
+}
+
+/**
+ * @param {Record<string, string | undefined>} [env=process.env]
+ * @returns {{ transport: "stdio" | "http", command?: string, args: string[], url?: string, token?: string, tool: string, timeoutMs: number, rateLimitPerMinute: number, maxResults: number } | null}
+ */
+export function getMcpSearchConfig(env = process.env) {
+  const result = mcpSchema.safeParse(env);
+  if (!result.success) {
+    const invalid = result.error.issues.map((issue) => issue.path.join("."));
+    throw new Error(`Invalid MCP search configuration: ${invalid.join(", ")}.`);
+  }
+  const data = result.data;
+  if (!data.MCP_SEARCH_TRANSPORT) return null;
+  if (data.MCP_SEARCH_TRANSPORT === "stdio" && !data.MCP_SEARCH_COMMAND) {
+    throw new Error("Missing MCP search configuration: MCP_SEARCH_COMMAND.");
+  }
+  if (data.MCP_SEARCH_TRANSPORT === "http" && !data.MCP_SEARCH_URL) {
+    throw new Error("Missing MCP search configuration: MCP_SEARCH_URL.");
+  }
+  let args = [];
+  if (data.MCP_SEARCH_ARGS) {
+    try {
+      args = JSON.parse(data.MCP_SEARCH_ARGS);
+    } catch {
+      throw new Error("Invalid MCP search configuration: MCP_SEARCH_ARGS.");
+    }
+    if (
+      !Array.isArray(args) ||
+      args.some((value) => typeof value !== "string")
+    ) {
+      throw new Error("Invalid MCP search configuration: MCP_SEARCH_ARGS.");
+    }
+  }
+  return {
+    transport: data.MCP_SEARCH_TRANSPORT,
+    command: data.MCP_SEARCH_COMMAND,
+    args,
+    url: data.MCP_SEARCH_URL,
+    token: data.MCP_SEARCH_TOKEN,
+    tool: data.MCP_SEARCH_TOOL,
+    queryField: data.MCP_SEARCH_QUERY_FIELD,
+    limitField: data.MCP_SEARCH_LIMIT_FIELD,
+    timeoutMs: data.MCP_SEARCH_TIMEOUT_MS,
+    rateLimitPerMinute: data.MCP_SEARCH_RATE_LIMIT_PER_MINUTE,
+    maxResults: data.MCP_SEARCH_MAX_RESULTS,
+  };
+}
+
+/**
+ * @param {Record<string, string | undefined>} [env=process.env]
+ * @returns {{ enabled: boolean, apiKey?: string, project: string, endpoint?: string }}
+ */
+export function getObservabilityConfig(env = process.env) {
+  const result = observabilitySchema.safeParse(env);
+  if (!result.success) {
+    const invalid = result.error.issues.map((issue) => issue.path.join("."));
+    throw new Error(
+      `Invalid observability configuration: ${invalid.join(", ")}.`,
+    );
+  }
+  if (result.data.LANGSMITH_TRACING && !result.data.LANGSMITH_API_KEY) {
+    throw new Error("Missing observability configuration: LANGSMITH_API_KEY.");
+  }
+  return {
+    enabled: result.data.LANGSMITH_TRACING,
+    apiKey: result.data.LANGSMITH_API_KEY,
+    project: result.data.LANGSMITH_PROJECT,
+    endpoint: result.data.LANGSMITH_ENDPOINT,
   };
 }

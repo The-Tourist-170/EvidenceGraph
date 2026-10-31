@@ -21,6 +21,25 @@ const entityInputSchema = z
   })
   .strict();
 
+const claimInputSchema = z
+  .object({
+    id: z.string().uuid(),
+    text: z.string().min(1).max(2_000),
+    normalizedText: z.string().min(1).max(2_000),
+    confidence: z.number().min(0).max(1),
+    chunkId: z.string().uuid().optional(),
+  })
+  .strict();
+
+const relationshipInputSchema = z
+  .object({
+    from: z.string().min(1).max(256),
+    to: z.string().min(1).max(256),
+    type: z.string().min(1).max(80),
+    confidence: z.number().min(0).max(1),
+  })
+  .strict();
+
 export function createNeo4jRepository({
   config = getNeo4jConfig(),
   driver,
@@ -40,6 +59,9 @@ export function createNeo4jRepository({
       );
       await session.run(
         "CREATE CONSTRAINT evidence_entity_workspace_name IF NOT EXISTS FOR (e:EvidenceEntity) REQUIRE (e.workspaceId, e.normalizedName) IS UNIQUE",
+      );
+      await session.run(
+        "CREATE CONSTRAINT evidence_claim_id IF NOT EXISTS FOR (c:EvidenceClaim) REQUIRE c.id IS UNIQUE",
       );
     } finally {
       await session.close();
@@ -82,6 +104,99 @@ export function createNeo4jRepository({
     }
   }
 
+  async function upsertClaims({ documentId, workspaceId, claims }) {
+    const id = z.string().uuid().parse(documentId);
+    const workspace = z.string().min(1).parse(workspaceId);
+    const parsedClaims = z.array(claimInputSchema).max(100).parse(claims);
+    if (parsedClaims.length === 0) return;
+    const session = graph.session();
+    try {
+      await session.executeWrite(async (transaction) => {
+        await transaction.run(
+          "MATCH (d:EvidenceDocument {id: $documentId, workspaceId: $workspaceId}) UNWIND $claims AS claim MERGE (c:EvidenceClaim {id: claim.id}) SET c.text = claim.text, c.normalizedText = claim.normalizedText, c.confidence = claim.confidence, c.documentId = $documentId, c.workspaceId = $workspaceId, c.chunkId = claim.chunkId MERGE (d)-[:SUPPORTS]->(c)",
+          {
+            documentId: id,
+            workspaceId: workspace,
+            claims: parsedClaims.map((claim) => ({
+              ...claim,
+              chunkId: claim.chunkId ?? null,
+            })),
+          },
+        );
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async function upsertRelationships({ workspaceId, relationships }) {
+    const workspace = z.string().min(1).parse(workspaceId);
+    const parsedRelationships = z
+      .array(relationshipInputSchema)
+      .max(100)
+      .parse(relationships);
+    if (parsedRelationships.length === 0) return;
+    const session = graph.session();
+    try {
+      await session.executeWrite(async (transaction) => {
+        await transaction.run(
+          "UNWIND $relationships AS rel MATCH (a:EvidenceEntity {workspaceId: $workspaceId, normalizedName: rel.from}) MATCH (b:EvidenceEntity {workspaceId: $workspaceId, normalizedName: rel.to}) MERGE (a)-[r:RELATED_TO {kind: rel.type}]->(b) SET r.confidence = rel.confidence",
+          { workspaceId: workspace, relationships: parsedRelationships },
+        );
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async function getDocumentClaims({ documentId, workspaceId, limit = 100 }) {
+    const id = z.string().uuid().parse(documentId);
+    const workspace = z.string().min(1).parse(workspaceId);
+    const boundedLimit = z.number().int().min(1).max(500).parse(limit);
+    const session = graph.session();
+    try {
+      const result = await session.run(
+        "MATCH (d:EvidenceDocument {id: $documentId, workspaceId: $workspaceId})-[:SUPPORTS]->(c:EvidenceClaim) RETURN c.id AS id, c.text AS text, c.confidence AS confidence, c.chunkId AS chunkId ORDER BY c.text LIMIT $limit",
+        {
+          documentId: id,
+          workspaceId: workspace,
+          limit: neo4j.int(boundedLimit),
+        },
+      );
+      return result.records.map((record) => ({
+        id: record.get("id"),
+        text: record.get("text"),
+        confidence: record.get("confidence"),
+        chunkId: record.get("chunkId"),
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async function getDocumentRelationships({ workspaceId, limit = 100 }) {
+    const workspace = z.string().min(1).parse(workspaceId);
+    const boundedLimit = z.number().int().min(1).max(500).parse(limit);
+    const session = graph.session();
+    try {
+      const result = await session.run(
+        "MATCH (a:EvidenceEntity {workspaceId: $workspaceId})-[r:RELATED_TO]->(b:EvidenceEntity {workspaceId: $workspaceId}) RETURN a.normalizedName AS from, b.normalizedName AS to, r.kind AS type, r.confidence AS confidence ORDER BY from, to, type LIMIT $limit",
+        {
+          workspaceId: workspace,
+          limit: neo4j.int(boundedLimit),
+        },
+      );
+      return result.records.map((record) => ({
+        from: record.get("from"),
+        to: record.get("to"),
+        type: record.get("type"),
+        confidence: record.get("confidence"),
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
   async function getDocumentEntities({ documentId, workspaceId, limit = 100 }) {
     const id = z.string().uuid().parse(documentId);
     const workspace = z.string().min(1).parse(workspaceId);
@@ -118,6 +233,10 @@ export function createNeo4jRepository({
           { documentId: id, workspaceId: workspace, userId: user },
         );
         await transaction.run(
+          "MATCH (c:EvidenceClaim {documentId: $documentId, workspaceId: $workspaceId}) DETACH DELETE c",
+          { documentId: id, workspaceId: workspace },
+        );
+        await transaction.run(
           "MATCH (e:EvidenceEntity {workspaceId: $workspaceId}) WHERE NOT (e)--() DETACH DELETE e",
           { workspaceId: workspace },
         );
@@ -131,9 +250,13 @@ export function createNeo4jRepository({
     checkHealth,
     close: () => graph.close(),
     deleteDocument,
+    getDocumentClaims,
     getDocumentEntities,
+    getDocumentRelationships,
     initialize,
+    upsertClaims,
     upsertDocument,
     upsertEntities,
+    upsertRelationships,
   };
 }

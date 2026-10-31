@@ -104,6 +104,7 @@ describe("Phase 3 independent workers", () => {
     env = {
       ...process.env,
       NODE_ENV: "test",
+      AI_INTEGRATIONS_ENABLED: "false",
       VALKEY_URL: process.env.VALKEY_URL ?? "redis://localhost:6380",
       VALKEY_PASSWORD: process.env.VALKEY_PASSWORD ?? "local-dev-password",
       DATABASE_URL:

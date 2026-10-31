@@ -8,6 +8,21 @@
 
 **Core technologies:** Bun.js (`Bun.serve()`), JavaScript, Zod, Docker, Valkey, BullMQ, PostgreSQL, Qdrant, Neo4j, LangChain.js, LangGraph.js, Next.js, Tailwind CSS.
 
+## Implementation status
+
+- [x] Phase 0 — Project initialization
+- [x] Phase 1 — API and streaming
+- [x] Phase 2 — Asynchronous delivery
+- [x] Phase 3 — Background execution
+- [x] Phase 4 — Persistence and knowledge
+- [x] Phase 5 — External service integrations
+- [ ] Phase 6 — AI orchestration and advanced retrieval
+- [ ] Phase 7 — User experience
+
+Each completed phase has a tutorial under `docs/tutorials/`. Live provider
+results require values in a local `.env`; automated tests use local MCP fixture
+servers and mocked model clients, never fabricated production results.
+
 ---
 
 # Phase 0 — Project Initialization

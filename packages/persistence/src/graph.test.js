@@ -90,11 +90,58 @@ describe("Neo4j graph repository", () => {
       workspaceId: document.workspaceId,
       userId: document.userId,
     });
-    expect(driver.statements.at(-2).parameters).toEqual({
+    const documentDelete = driver.statements.find(({ statement }) =>
+      statement.includes("DETACH DELETE d"),
+    );
+    expect(documentDelete.parameters).toEqual({
       documentId: document.id,
       workspaceId: document.workspaceId,
       userId: document.userId,
     });
-    expect(driver.statements.at(-2).statement).toContain("$userId");
+    expect(documentDelete.statement).toContain("$userId");
+  });
+
+  test("upserts validated claims and relationships with provenance", async () => {
+    const driver = createDriver();
+    const repository = createNeo4jRepository({ config, driver });
+    const claim = {
+      id: "00000000-0000-4000-8000-000000000003",
+      text: "Urban trees reduce summer heat.",
+      normalizedText: "urban trees reduce summer heat",
+      confidence: 0.9,
+      chunkId: "00000000-0000-4000-8000-000000000004",
+    };
+    const relationship = {
+      from: "urban trees",
+      to: "summer heat",
+      type: "REDUCES",
+      confidence: 0.8,
+    };
+    await repository.upsertClaims({
+      documentId: document.id,
+      workspaceId: document.workspaceId,
+      claims: [claim],
+    });
+    await repository.upsertRelationships({
+      workspaceId: document.workspaceId,
+      relationships: [relationship],
+    });
+
+    const claimWrite = driver.statements.find(({ statement }) =>
+      statement.includes("MERGE (c:EvidenceClaim"),
+    );
+    const relationshipWrite = driver.statements.find(({ statement }) =>
+      statement.includes("RELATED_TO"),
+    );
+    expect(claimWrite.parameters.claims).toEqual([claim]);
+    expect(relationshipWrite.parameters.relationships).toEqual([relationship]);
+
+    await expect(
+      repository.upsertClaims({
+        documentId: document.id,
+        workspaceId: document.workspaceId,
+        claims: [{ ...claim, id: "not-a-uuid" }],
+      }),
+    ).rejects.toThrow();
   });
 });

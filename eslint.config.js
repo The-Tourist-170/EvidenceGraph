@@ -34,6 +34,7 @@ export default [
         clearTimeout: "readonly",
         console: "readonly",
         crypto: "readonly",
+        performance: "readonly",
         process: "readonly",
         setInterval: "readonly",
         setTimeout: "readonly",

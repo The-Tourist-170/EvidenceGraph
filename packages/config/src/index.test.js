@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   getDatabaseConfig,
+  getEmbeddingConfig,
+  getIntegrationConfig,
   getLlmConfig,
+  getMcpSearchConfig,
+  getObservabilityConfig,
+  getRerankConfig,
   getMinioConfig,
   getNeo4jConfig,
   getQdrantConfig,
@@ -162,12 +167,111 @@ describe("LLM configuration", () => {
       baseUrl: "https://llm.example.test/v1",
       modelName: "model-a",
       apiKey: "test-key",
+      temperature: 0,
+      maxOutputTokens: 4096,
+      timeoutMs: 60_000,
+      maxRetries: 2,
+      costPerMillionTokens: 0,
     });
   });
 
   test("reports missing variables without exposing secret values", () => {
     expect(() => getLlmConfig({ LLM_API_KEY: "secret-value" })).toThrow(
       "LLM_BASE_URL, LLM_MODEL_NAME",
+    );
+  });
+});
+
+describe("external integration configuration", () => {
+  test("enables integrations in production or by explicit opt-in", () => {
+    expect(getIntegrationConfig({ NODE_ENV: "development" }).enabled).toBe(
+      false,
+    );
+    expect(
+      getIntegrationConfig({
+        NODE_ENV: "development",
+        AI_INTEGRATIONS_ENABLED: "true",
+      }).enabled,
+    ).toBe(true);
+    expect(getIntegrationConfig({ NODE_ENV: "production" }).enabled).toBe(true);
+  });
+
+  test("returns null for unconfigured optional providers", () => {
+    expect(getEmbeddingConfig({})).toBeNull();
+    expect(getRerankConfig({})).toBeNull();
+    expect(getMcpSearchConfig({})).toBeNull();
+  });
+
+  test("builds an embedding configuration with dimensions and batching", () => {
+    expect(
+      getEmbeddingConfig({
+        LLM_BASE_URL: "https://llm.example.test/v1",
+        LLM_API_KEY: "llm-key",
+        EMBEDDING_MODEL_NAME: "embed-a",
+        EMBEDDING_DIMENSIONS: "768",
+        EMBEDDING_BATCH_SIZE: "8",
+      }),
+    ).toEqual({
+      baseUrl: "https://llm.example.test/v1",
+      modelName: "embed-a",
+      apiKey: "llm-key",
+      dimensions: 768,
+      batchSize: 8,
+    });
+  });
+
+  test("validates MCP transport-specific settings and JSON arguments", () => {
+    expect(
+      getMcpSearchConfig({
+        MCP_SEARCH_TRANSPORT: "stdio",
+        MCP_SEARCH_COMMAND: "server",
+        MCP_SEARCH_ARGS: '["--stdio"]',
+      }),
+    ).toMatchObject({
+      transport: "stdio",
+      command: "server",
+      args: ["--stdio"],
+      tool: "web_search",
+      queryField: "query",
+      limitField: "limit",
+    });
+    expect(() => getMcpSearchConfig({ MCP_SEARCH_TRANSPORT: "stdio" })).toThrow(
+      "MCP_SEARCH_COMMAND",
+    );
+    expect(() => getMcpSearchConfig({ MCP_SEARCH_TRANSPORT: "http" })).toThrow(
+      "MCP_SEARCH_URL",
+    );
+    expect(() =>
+      getMcpSearchConfig({
+        MCP_SEARCH_TRANSPORT: "stdio",
+        MCP_SEARCH_COMMAND: "server",
+        MCP_SEARCH_ARGS: "not-json",
+      }),
+    ).toThrow("MCP_SEARCH_ARGS");
+  });
+
+  test("treats empty optional values as unset", () => {
+    expect(
+      getMcpSearchConfig({
+        MCP_SEARCH_TRANSPORT: "",
+        MCP_SEARCH_URL: "",
+        MCP_SEARCH_ARGS: "",
+      }),
+    ).toBeNull();
+    expect(
+      getEmbeddingConfig({ EMBEDDING_MODEL_NAME: "", EMBEDDING_BASE_URL: "" }),
+    ).toBeNull();
+  });
+
+  test("requires a LangSmith key when tracing is enabled", () => {
+    expect(getObservabilityConfig({ LANGSMITH_TRACING: "false" })).toEqual({
+      enabled: false,
+      apiKey: undefined,
+      project: "evidencegraph",
+      endpoint: undefined,
+    });
+    expect(() => getObservabilityConfig({ LANGSMITH_TRACING: "true" })).toThrow(
+      "LANGSMITH_API_KEY",
     );
   });
 });
