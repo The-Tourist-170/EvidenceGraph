@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { createQdrantRepository } from "./index.js";
+import {
+  createQdrantRepository,
+  createSparseVector,
+  reciprocalRankFusion,
+} from "./index.js";
 
 function createClient() {
   const calls = [];
@@ -96,5 +100,62 @@ describe("Qdrant repository", () => {
     await repository.deleteDocument({ documentId, ...owner });
     const deletion = client.calls.find(([name]) => name === "delete");
     expect(deletion[2].filter.must).toHaveLength(3);
+  });
+});
+
+describe("hybrid retrieval", () => {
+  test("merges dense and sparse results with reciprocal rank fusion", () => {
+    const fused = reciprocalRankFusion(
+      [
+        [{ id: "a" }, { id: "b" }],
+        [{ id: "b" }, { id: "c" }],
+      ],
+      { k: 0, limit: 3 },
+    );
+    expect(fused.map(({ id }) => id)).toEqual(["b", "a", "c"]);
+    expect(fused[0].rrfScore).toBeGreaterThan(fused[1].rrfScore);
+  });
+
+  test("searches both vector types and deduplicates by point id", async () => {
+    const client = createClient();
+    const dense = [{ id: "a", payload: { content: "dense" } }];
+    const sparse = [
+      { id: "a", payload: { content: "sparse" } },
+      { id: "b", payload: { content: "sparse only" } },
+    ];
+    let searchIndex = 0;
+    client.search = async (name, searchConfig) => {
+      client.calls.push(["search", name, searchConfig, searchIndex]);
+      return searchIndex++ === 0 ? dense : sparse;
+    };
+    const repository = createQdrantRepository({ client, config });
+    const results = await repository.searchHybrid({
+      denseVector: [0.25, 0.75],
+      sparseVector: point.sparse,
+      ...owner,
+      limit: 2,
+    });
+    expect(results.map(({ id }) => id)).toEqual(["a", "b"]);
+    expect(client.calls.filter(([name]) => name === "search")).toHaveLength(2);
+  });
+
+  test("encodes deterministic BM25-style sparse vectors", () => {
+    const first = createSparseVector("Urban trees reduce urban heat");
+    const second = createSparseVector("Urban trees reduce urban heat");
+    expect(first).toEqual(second);
+    expect(first.indices.length).toBeGreaterThan(0);
+    expect(first.indices).toHaveLength(first.values.length);
+    expect(createSparseVector("")).toEqual({ indices: [], values: [] });
+  });
+
+  test("returns dense results directly when no sparse vector is available", async () => {
+    const client = createClient();
+    const repository = createQdrantRepository({ client, config });
+    const results = await repository.searchHybrid({
+      denseVector: [0.25, 0.75],
+      ...owner,
+      limit: 1,
+    });
+    expect(results).toEqual([{ id: "fixture" }]);
   });
 });

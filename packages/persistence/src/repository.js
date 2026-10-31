@@ -1,9 +1,11 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, desc, eq, lte } from "drizzle-orm";
 import {
   documents,
   documentChunks,
   idempotencyKeys,
+  reportRevisions,
+  reports,
   researchTasks,
   taskEvents,
   users,
@@ -163,6 +165,85 @@ export function createPostgresTaskRepository({
       .update(researchTasks)
       .set({ initializing, flushing })
       .where(eq(researchTasks.id, id));
+  }
+
+  async function saveReport({ taskId, owner, title, body }) {
+    await ensureOwner(owner);
+    return db.transaction(async (transaction) => {
+      const [existing] = await transaction
+        .select()
+        .from(reports)
+        .where(eq(reports.taskId, taskId))
+        .limit(1);
+      const now = new Date();
+      let report = existing;
+      if (!report) {
+        [report] = await transaction
+          .insert(reports)
+          .values({
+            id: randomUUID(),
+            taskId,
+            userId: owner.userId,
+            workspaceId: owner.workspaceId,
+            title,
+            currentRevision: 0,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning();
+      }
+      const revision = report.currentRevision + 1;
+      await transaction.insert(reportRevisions).values({
+        id: randomUUID(),
+        reportId: report.id,
+        revision,
+        body,
+        createdBy: owner.userId,
+        createdAt: now,
+      });
+      const [updated] = await transaction
+        .update(reports)
+        .set({ title, currentRevision: revision, updatedAt: now })
+        .where(eq(reports.id, report.id))
+        .returning();
+      return {
+        id: updated.id,
+        taskId: updated.taskId,
+        title: updated.title,
+        currentRevision: updated.currentRevision,
+        body,
+        createdAt: iso(updated.createdAt),
+        updatedAt: iso(updated.updatedAt),
+      };
+    });
+  }
+
+  async function getReport(taskId) {
+    const [report] = await db
+      .select()
+      .from(reports)
+      .where(eq(reports.taskId, taskId))
+      .limit(1);
+    if (!report) return null;
+    const [revision] = await db
+      .select()
+      .from(reportRevisions)
+      .where(
+        and(
+          eq(reportRevisions.reportId, report.id),
+          eq(reportRevisions.revision, report.currentRevision),
+        ),
+      )
+      .limit(1);
+    return {
+      id: report.id,
+      taskId: report.taskId,
+      title: report.title,
+      currentRevision: report.currentRevision,
+      body: revision?.body ?? {},
+      createdAt: iso(report.createdAt),
+      updatedAt: iso(report.updatedAt),
+    };
   }
 
   async function deleteTask(record) {
@@ -580,6 +661,7 @@ export function createPostgresTaskRepository({
     ensureOwner,
     getDocument,
     getDocumentChunks,
+    getReport,
     getTask,
     getTaskEvents,
     initialize,
@@ -589,6 +671,7 @@ export function createPostgresTaskRepository({
     reserveIdempotency,
     saveDocument,
     saveDocumentChunks,
+    saveReport,
     saveTask,
     setTaskFlags,
   };

@@ -6,6 +6,7 @@ export const taskConfigSchema = z
     maxSources: z.number().int().min(1).max(50),
     maxIterations: z.number().int().min(1).max(10),
     maxDurationSeconds: z.number().int().min(10).max(300),
+    requiresApproval: z.boolean().default(false),
   })
   .strict();
 
@@ -21,6 +22,13 @@ export const researchJobSchema = z
     owner: ownerSchema,
     fingerprint: z.string().length(64),
     retryOf: z.string().uuid().optional(),
+    resume: z
+      .object({
+        approved: z.boolean(),
+        feedback: z.string().max(2_000).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -57,6 +65,7 @@ export const researchEventTypeSchema = z.enum([
   "task.completed",
   "task.failed",
   "task.cancelled",
+  "task.awaiting_approval",
 ]);
 
 const researchEventBase = {
@@ -120,4 +129,16 @@ export const researchEventSchema = z.discriminatedUnion("type", [
     })
     .strict(),
   taskStateEvent("task.cancelled", "cancelled"),
+  z
+    .object({
+      ...researchEventBase,
+      type: z.literal("task.awaiting_approval"),
+      data: z
+        .object({
+          status: z.literal("awaiting_approval"),
+          reason: z.string().min(1).optional(),
+        })
+        .strict(),
+    })
+    .strict(),
 ]);

@@ -16,6 +16,7 @@ const validResearchJob = {
     maxSources: 10,
     maxIterations: 3,
     maxDurationSeconds: 120,
+    requiresApproval: false,
   },
   owner,
   fingerprint: "a".repeat(64),

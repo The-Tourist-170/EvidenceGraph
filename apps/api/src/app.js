@@ -1,10 +1,12 @@
 import { z } from "zod";
 import { logger } from "@evidencegraph/shared";
 import {
+  approvalRequestSchema,
   createResearchTaskSchema,
   documentSchema,
   documentStatusSchema,
   errorEnvelopeSchema,
+  researchReportSchema,
   researchResultSchema,
   researchTaskSchema,
   successEnvelopeSchema,
@@ -364,7 +366,7 @@ export function createApiHandler({
     }
 
     const taskMatch = url.pathname.match(
-      /^\/api\/v1\/research-tasks\/([^/]+)(?:\/(status|result|events|cancel|retry))?$/,
+      /^\/api\/v1\/research-tasks\/([^/]+)(?:\/(status|result|events|cancel|retry|approve|report))?$/,
     );
     if (taskMatch) {
       const id = taskIdFromPath(decodePathSegment(taskMatch[1]));
@@ -400,6 +402,20 @@ export function createApiHandler({
           researchTaskSchema,
           await store.retryTask(id, identity),
           202,
+        );
+      }
+      if (action === "approve" && request.method === "POST") {
+        const decision = await readJson(request, approvalRequestSchema);
+        return jsonResponse(
+          researchTaskSchema,
+          await store.approveTask(id, identity, decision),
+          202,
+        );
+      }
+      if (action === "report" && request.method === "GET") {
+        return jsonResponse(
+          researchReportSchema,
+          await store.getReport(id, identity),
         );
       }
       if (action === "events" && request.method === "GET") {

@@ -7,6 +7,7 @@ import {
   getQdrantConfig,
   getValkeyConfig,
 } from "@evidencegraph/config";
+import { createSparseVector } from "@evidencegraph/retrieval";
 import { createObjectStorage } from "../../object-storage/src/index.js";
 import { createApiHandler } from "../../../apps/api/src/app.js";
 import { createQueueRuntime } from "../../queue/src/queues.js";
@@ -154,6 +155,24 @@ describe("Phase 4 PostgreSQL, Qdrant, Neo4j, and MinIO integration", () => {
       const persistedTask = await persistence.getTask(task.id);
       expect(persistedTask.question).toBe(body.question);
       expect(persistedTask.owner).toEqual(owner);
+
+      const firstReport = await persistence.saveReport({
+        taskId: task.id,
+        owner,
+        title: "Phase 6 report",
+        body: { summary: "First revision." },
+      });
+      expect(firstReport.currentRevision).toBe(1);
+      const secondReport = await persistence.saveReport({
+        taskId: task.id,
+        owner,
+        title: "Phase 6 report",
+        body: { summary: "Second revision." },
+      });
+      expect(secondReport.currentRevision).toBe(2);
+      expect((await persistence.getReport(task.id)).body).toEqual({
+        summary: "Second revision.",
+      });
       const changedRequest = await api(
         new Request("http://localhost/api/v1/research-tasks", {
           method: "POST",
@@ -229,11 +248,67 @@ describe("Phase 4 PostgreSQL, Qdrant, Neo4j, and MinIO integration", () => {
           },
         ],
       });
+      await persistence.graphRepository.upsertEntities({
+        documentId: document.id,
+        workspaceId: owner.workspaceId,
+        entities: [
+          {
+            id: randomUUID(),
+            name: "Summer Heat",
+            normalizedName: "summer heat",
+            kind: "phenomenon",
+          },
+        ],
+      });
+      const claimId = randomUUID();
+      await persistence.graphRepository.upsertClaims({
+        documentId: document.id,
+        workspaceId: owner.workspaceId,
+        claims: [
+          {
+            id: claimId,
+            text: "Urban trees reduce summer heat.",
+            normalizedText: "urban trees reduce summer heat",
+            confidence: 0.9,
+            chunkId: chunks[0].id,
+          },
+        ],
+      });
+      await persistence.graphRepository.upsertRelationships({
+        workspaceId: owner.workspaceId,
+        relationships: [
+          {
+            from: "phase four",
+            to: "summer heat",
+            type: "REDUCES",
+            confidence: 0.8,
+          },
+        ],
+      });
       const entities = await persistence.graphRepository.getDocumentEntities({
         documentId: document.id,
         workspaceId: owner.workspaceId,
       });
-      expect(entities).toHaveLength(1);
+      expect(entities).toHaveLength(2);
+      expect(
+        await persistence.graphRepository.getDocumentClaims({
+          documentId: document.id,
+          workspaceId: owner.workspaceId,
+        }),
+      ).toHaveLength(1);
+      expect(
+        await persistence.graphRepository.getDocumentRelationships({
+          workspaceId: owner.workspaceId,
+        }),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            from: "phase four",
+            to: "summer heat",
+            type: "REDUCES",
+          }),
+        ]),
+      );
 
       const vectorConfig = getQdrantConfig(env);
       const vectorId = randomUUID();
@@ -258,6 +333,14 @@ describe("Phase 4 PostgreSQL, Qdrant, Neo4j, and MinIO integration", () => {
         userId: owner.userId,
       });
       expect(vectorResults.map(({ id }) => id)).toContain(vectorId);
+      const hybridResults = await persistence.vectorRepository.searchHybrid({
+        denseVector: Array(vectorConfig.dimensions).fill(0.1),
+        sparseVector: createSparseVector(chunks[0].content),
+        workspaceId: owner.workspaceId,
+        userId: owner.userId,
+        limit: 5,
+      });
+      expect(hybridResults.map(({ id }) => id)).toContain(vectorId);
 
       const downloaded = await api(
         new Request(`http://localhost/api/v1/documents/${document.id}/content`),
@@ -274,6 +357,12 @@ describe("Phase 4 PostgreSQL, Qdrant, Neo4j, and MinIO integration", () => {
       expect(await persistence.getDocument(document.id)).toBeNull();
       expect(
         await persistence.graphRepository.getDocumentEntities({
+          documentId: document.id,
+          workspaceId: owner.workspaceId,
+        }),
+      ).toEqual([]);
+      expect(
+        await persistence.graphRepository.getDocumentClaims({
           documentId: document.id,
           workspaceId: owner.workspaceId,
         }),

@@ -135,6 +135,30 @@ export function createQdrantRepository({
     });
   }
 
+  async function searchHybrid({
+    denseVector,
+    sparseVector,
+    workspaceId,
+    userId,
+    limit = 10,
+    candidateLimit = Math.max(limit * 3, 30),
+  }) {
+    const denseResults = await searchDense({
+      vector: denseVector,
+      workspaceId,
+      userId,
+      limit: candidateLimit,
+    });
+    if (!sparseVector) return denseResults.slice(0, limit);
+    const sparseResults = await searchSparse({
+      vector: sparseVector,
+      workspaceId,
+      userId,
+      limit: candidateLimit,
+    });
+    return reciprocalRankFusion([denseResults, sparseResults], { limit });
+  }
+
   async function deleteDocument({ documentId, workspaceId, userId }) {
     const id = z.string().uuid().parse(documentId);
     await qdrant.delete(collectionName, {
@@ -158,7 +182,47 @@ export function createQdrantRepository({
     deleteDocument,
     ensureCollection,
     searchDense,
+    searchHybrid,
     searchSparse,
     upsertPoints,
   };
+}
+
+export function createSparseVector(text) {
+  const tokens = String(text ?? "")
+    .toLowerCase()
+    .normalize("NFKC")
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 1);
+  const counts = new Map();
+  for (const token of tokens) {
+    let hash = 2_166_136_261;
+    for (let index = 0; index < token.length; index += 1) {
+      hash ^= token.charCodeAt(index);
+      hash = Math.imul(hash, 16_777_619);
+    }
+    const term = (hash >>> 0) % 2_147_483_647;
+    counts.set(term, (counts.get(term) ?? 0) + 1);
+  }
+  const indices = [...counts.keys()].sort((a, b) => a - b);
+  return {
+    indices,
+    values: indices.map((index) => Math.log1p(counts.get(index))),
+  };
+}
+
+export function reciprocalRankFusion(resultLists, { k = 60, limit } = {}) {
+  const scores = new Map();
+  const points = new Map();
+  for (const results of resultLists) {
+    results.forEach((point, index) => {
+      const id = String(point.id);
+      scores.set(id, (scores.get(id) ?? 0) + 1 / (k + index + 1));
+      if (!points.has(id)) points.set(id, point);
+    });
+  }
+  return [...scores.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit ?? Number.POSITIVE_INFINITY)
+    .map(([id, score]) => ({ ...points.get(id), id, rrfScore: score }));
 }

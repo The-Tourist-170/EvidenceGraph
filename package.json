@@ -18,7 +18,8 @@
     "format:check": "prettier --check .",
     "db:generate": "bun --cwd packages/persistence db:generate",
     "db:migrate": "bun --cwd packages/persistence db:migrate",
-    "test:phase4:integration": "RUN_PHASE4_INTEGRATION=1 bun test packages/persistence/src/integration.test.js"
+    "test:phase4:integration": "RUN_PHASE4_INTEGRATION=1 bun test packages/persistence/src/integration.test.js",
+    "test:phase6:integration": "RUN_PHASE6_INTEGRATION=1 RUN_PHASE4_INTEGRATION=1 bun test packages/ai/src/graph/checkpointer.integration.test.js packages/persistence/src/integration.test.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",

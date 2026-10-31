@@ -14,7 +14,12 @@ const taskRetentionSeconds = 30 * 24 * 60 * 60;
 const eventDeduplicationRetentionSeconds = taskRetentionSeconds;
 const idempotencyRetentionSeconds = 7 * 24 * 60 * 60;
 const historyLimit = 1_000;
-const terminalTaskStatuses = new Set(["completed", "failed", "cancelled"]);
+const terminalTaskStatuses = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "awaiting_approval",
+]);
 const researchResultSchema = z
   .object({
     summary: z.string().min(1),
@@ -518,6 +523,9 @@ export function createBullMqStore({
           job.failedReason?.includes("TASK_TIMED_OUT"));
       const cancellationRequested =
         type === "failed" && (await redis.exists(cancellationKey(jobId))) === 1;
+      const awaitingApproval =
+        type === "failed" &&
+        job.failedReason?.includes("TASK_AWAITING_APPROVAL");
       if (type === "waiting" || type === "delayed") {
         await transitionTask(jobId, "queued", "task.queued", {
           status: "queued",
@@ -543,6 +551,17 @@ export function createBullMqStore({
           "task.completed",
           { status: "completed" },
           result,
+        );
+        await redis.del(cancellationKey(jobId));
+      } else if (type === "failed" && awaitingApproval) {
+        await transitionTask(
+          jobId,
+          "awaiting_approval",
+          "task.awaiting_approval",
+          {
+            status: "awaiting_approval",
+            reason: "Research plan is awaiting human approval.",
+          },
         );
         await redis.del(cancellationKey(jobId));
       } else if (type === "failed" && cancellationRequested) {
@@ -775,6 +794,7 @@ export function createBullMqStore({
     retryOf,
     queueOptions,
     idempotencyKey,
+    resume,
   }) {
     const parsedConfig = taskConfigSchema.parse(config);
     const parsedQueueOptions = queueOptionsSchema.parse(queueOptions ?? {});
@@ -783,6 +803,7 @@ export function createBullMqStore({
         question,
         config: parsedConfig,
         queueOptions: parsedQueueOptions,
+        ...(resume ? { resume } : {}),
       }),
     );
     const reservation = await reserveIdempotency(
@@ -822,6 +843,7 @@ export function createBullMqStore({
         owner,
         fingerprint,
         ...(retryOf ? { retryOf } : {}),
+        ...(resume ? { resume } : {}),
       });
       job = await researchQueue.getJob(record.id);
       if (job) {
@@ -1071,6 +1093,48 @@ export function createBullMqStore({
     });
   }
 
+  async function approveTask(id, owner, { approved, feedback }) {
+    const record = await findTask(id, owner);
+    if (record.status !== "awaiting_approval") {
+      throw new QueueStoreError(
+        409,
+        "TASK_NOT_AWAITING_APPROVAL",
+        "Only tasks awaiting approval can be resumed.",
+      );
+    }
+    return createTask({
+      question: record.question,
+      config: record.config,
+      owner,
+      retryOf: record.id,
+      queueOptions: {},
+      resume: {
+        approved,
+        ...(feedback ? { feedback } : {}),
+      },
+    });
+  }
+
+  async function getReport(id, owner) {
+    const task = await getTask(id, owner);
+    if (!repository?.getReport) {
+      throw new QueueStoreError(
+        501,
+        "REPORT_UNAVAILABLE",
+        "Report persistence is not configured.",
+      );
+    }
+    const report = await repository.getReport(task.id);
+    if (!report) {
+      throw new QueueStoreError(
+        404,
+        "REPORT_NOT_FOUND",
+        "The report is not available.",
+      );
+    }
+    return report;
+  }
+
   async function getEvents(id, owner) {
     await getTask(id, owner);
     return eventBroker;
@@ -1297,6 +1361,7 @@ export function createBullMqStore({
   }
 
   return {
+    approveTask,
     cancelTask,
     checkReadiness,
     close,
@@ -1308,6 +1373,7 @@ export function createBullMqStore({
     getDocumentContent,
     getEvents,
     getQueueCounts: runtime.getCounts,
+    getReport,
     getTask,
     getTaskResult,
     getTaskStatus,

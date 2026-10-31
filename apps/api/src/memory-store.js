@@ -11,7 +11,12 @@ export class ApiError extends Error {
   }
 }
 
-const terminalStatuses = new Set(["completed", "failed", "cancelled"]);
+const terminalStatuses = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "awaiting_approval",
+]);
 
 function sameOwner(left, right) {
   return left.userId === right.userId && left.workspaceId === right.workspaceId;
@@ -116,6 +121,17 @@ export function createMemoryStore({
         if (!updatedTask) return;
         clearTaskSchedules(task.id);
         publish(task.id, "task.completed", { status: updatedTask.status });
+      },
+      awaitApproval() {
+        const updatedTask = updateTask(task.id, {
+          status: "awaiting_approval",
+        });
+        if (!updatedTask) return;
+        clearTaskSchedules(task.id);
+        publish(task.id, "task.awaiting_approval", {
+          status: updatedTask.status,
+          reason: "Simulated approval interrupt.",
+        });
       },
       fail() {
         const updatedTask = updateTask(task.id, { status: "failed" });
@@ -235,6 +251,29 @@ export function createMemoryStore({
     });
   }
 
+  function approveTask(id, owner, { approved, feedback }) {
+    const task = findOwnedTask(id, owner);
+    if (task.status !== "awaiting_approval") {
+      throw new ApiError(
+        409,
+        "TASK_NOT_AWAITING_APPROVAL",
+        "Only tasks awaiting approval can be resumed.",
+      );
+    }
+    return createTask({
+      question: task.question,
+      config: task.config,
+      owner,
+      retryOf: task.id,
+      resume: { approved, ...(feedback ? { feedback } : {}) },
+    });
+  }
+
+  function getReport(id, owner) {
+    findOwnedTask(id, owner);
+    throw new ApiError(404, "REPORT_NOT_FOUND", "The report is not available.");
+  }
+
   function getEvents(id, owner) {
     findOwnedTask(id, owner);
     return eventBroker;
@@ -314,6 +353,7 @@ export function createMemoryStore({
   }
 
   return {
+    approveTask,
     cancelTask,
     createDocument,
     createTask,
@@ -322,6 +362,7 @@ export function createMemoryStore({
     getDocument,
     getDocumentContent,
     getEvents,
+    getReport,
     getTask,
     getTaskResult,
     getTaskStatus,

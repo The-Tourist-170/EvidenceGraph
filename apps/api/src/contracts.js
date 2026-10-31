@@ -12,6 +12,7 @@ export const researchConfigSchema = z
     maxSources: z.number().int().min(1).max(50).default(10),
     maxIterations: z.number().int().min(1).max(10).default(3),
     maxDurationSeconds: z.number().int().min(10).max(300).default(120),
+    requiresApproval: z.boolean().default(false),
   })
   .strict();
 
@@ -35,7 +36,15 @@ export const taskStatusSchema = z.enum([
   "completed",
   "failed",
   "cancelled",
+  "awaiting_approval",
 ]);
+
+export const approvalRequestSchema = z
+  .object({
+    approved: z.boolean(),
+    feedback: z.string().trim().max(2_000).optional(),
+  })
+  .strict();
 
 export const researchResultSchema = z
   .object({
@@ -88,6 +97,18 @@ export const documentSchema = z
     size: z.number().int().positive(),
     status: documentStatusSchema,
     createdAt: z.string().datetime(),
+  })
+  .strict();
+
+export const researchReportSchema = z
+  .object({
+    id: z.string().uuid(),
+    taskId: z.string().uuid(),
+    title: z.string().min(1),
+    currentRevision: z.number().int().positive(),
+    body: z.record(z.unknown()),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
   })
   .strict();
 

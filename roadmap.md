@@ -16,7 +16,7 @@
 - [x] Phase 3 — Background execution
 - [x] Phase 4 — Persistence and knowledge
 - [x] Phase 5 — External service integrations
-- [ ] Phase 6 — AI orchestration and advanced retrieval
+- [x] Phase 6 — AI orchestration and advanced retrieval
 - [ ] Phase 7 — User experience
 
 Each completed phase has a tutorial under `docs/tutorials/`. Live provider

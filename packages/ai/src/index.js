@@ -44,3 +44,38 @@ export {
   stableEntityId,
 } from "./knowledge.js";
 export { createResearchIntegrations, runResearch } from "./research.js";
+export {
+  createMemoryCheckpointer,
+  createPostgresCheckpointer,
+} from "./graph/checkpointer.js";
+export {
+  approvalDecisionSchema,
+  evidenceEvaluationSchema,
+  graphEvidenceSchema,
+  graphInputSchema,
+  reportDraftSchema,
+  researchGraphConfigSchema,
+  researchPlanSchema,
+  retrievedChunkSchema,
+  ResearchState,
+  verificationSchema,
+} from "./graph/state.js";
+export {
+  assembleContext,
+  createRetrievalTools,
+} from "./graph/retrieval-tools.js";
+export {
+  approvalNode,
+  evaluateNode,
+  insufficientNode,
+  planNode,
+  reportNode,
+  retrieveNode,
+  routeAfterApproval,
+  routeAfterEvaluate,
+  verifyNode,
+} from "./graph/nodes.js";
+export {
+  createResearchGraph,
+  invokeResearchGraph,
+} from "./graph/research-graph.js";

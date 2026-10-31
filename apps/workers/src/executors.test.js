@@ -145,6 +145,49 @@ describe("worker executors", () => {
     });
   });
 
+  test("runs the LangGraph workflow and returns its cited report", async () => {
+    const context = createContext();
+    const taskId = "00000000-0000-4000-8000-000000000050";
+    const result = await executeResearch(
+      {
+        data: {
+          taskId,
+          question: "How do urban trees reduce summer heat?",
+          config: {
+            depth: "standard",
+            maxSources: 5,
+            maxIterations: 2,
+            maxDurationSeconds: 60,
+            requiresApproval: false,
+          },
+          owner: { userId: "user-a", workspaceId: "workspace-a" },
+        },
+      },
+      context,
+      { llm: {} },
+      {
+        graph: {
+          async invoke() {
+            return {
+              status: "completed",
+              report: {
+                summary: "Trees provide shade.",
+                claims: [{ text: "Trees provide shade.", sourceIds: ["s1"] }],
+                sourceIds: ["s1"],
+              },
+            };
+          },
+        },
+      },
+    );
+    expect(result).toEqual({
+      summary: "Trees provide shade.",
+      claims: ["Trees provide shade."],
+      sourceIds: ["s1"],
+      synthetic: false,
+    });
+  });
+
   test("maps non-retryable integration failures to UnrecoverableError", async () => {
     const context = createContext();
     const error = await executeResearch(

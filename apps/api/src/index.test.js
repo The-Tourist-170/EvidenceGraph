@@ -232,6 +232,7 @@ describe("research task lifecycle", () => {
       maxSources: 10,
       maxIterations: 3,
       maxDurationSeconds: 120,
+      requiresApproval: false,
     });
 
     const listed = await responseData(
@@ -276,6 +277,49 @@ describe("research task lifecycle", () => {
       }),
     );
     expect(repeated.status).toBe(409);
+  });
+
+  test("pauses for approval and resumes as a linked task", async () => {
+    const harness = createHarness({
+      executor: (_task, controls) => {
+        controls.schedule(() => controls.awaitApproval(), 0);
+      },
+    });
+    const task = await createTask(
+      harness.handleRequest,
+      "Should this research plan be approved?",
+    );
+    harness.runScheduled();
+
+    const status = await responseData(
+      await harness.handleRequest(
+        new Request(`http://localhost${taskPath}/${task.id}/status`),
+      ),
+    );
+    expect(status.status).toBe("awaiting_approval");
+
+    const response = await harness.handleRequest(
+      jsonRequest(`${taskPath}/${task.id}/approve`, {
+        method: "POST",
+        body: { approved: true, feedback: "Looks good." },
+      }),
+    );
+    expect(response.status).toBe(202);
+    const resumed = await responseData(response);
+    expect(resumed.retryOf).toBe(task.id);
+    expect(resumed.status).toBe("queued");
+  });
+
+  test("rejects approval for a task that is not paused", async () => {
+    const harness = createHarness();
+    const task = await createTask(harness.handleRequest);
+    const response = await harness.handleRequest(
+      jsonRequest(`${taskPath}/${task.id}/approve`, {
+        method: "POST",
+        body: { approved: true },
+      }),
+    );
+    expect(response.status).toBe(409);
   });
 
   test("retries failed tasks as a new task linked to the original", async () => {
