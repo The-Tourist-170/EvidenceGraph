@@ -1,0 +1,14 @@
+{
+  "name": "@evidencegraph/auth",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@evidencegraph/config": "workspace:*",
+    "@evidencegraph/persistence": "workspace:*",
+    "better-auth": "^1.5.0",
+    "drizzle-orm": "^0.45.4",
+    "postgres": "^4.0.0"
+  },
+  "exports": "./src/index.js"
+}

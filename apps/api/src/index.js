@@ -5,6 +5,7 @@ import {
   getValkeyConfig,
 } from "@evidencegraph/config";
 import { logger } from "@evidencegraph/shared";
+import { createAuthInstance } from "@evidencegraph/auth";
 import { createObjectStorage } from "@evidencegraph/object-storage";
 import { createPostgresPersistence } from "@evidencegraph/persistence";
 import { createBullMqStore, createQueueRuntime } from "@evidencegraph/queue";
@@ -20,6 +21,10 @@ async function startApi() {
     config: getDatabaseConfig(),
     env: process.env,
   });
+  const auth = createAuthInstance({
+    env: process.env,
+    db: persistence.database.db,
+  });
   const store = createBullMqStore({
     runtime: queueRuntime,
     objectStorage,
@@ -34,7 +39,7 @@ async function startApi() {
     const server = Bun.serve({
       port: runtimeConfig.PORT,
       idleTimeout: 60,
-      fetch: createApiHandler({ store }),
+      fetch: createApiHandler({ store, auth, authenticate: auth.authenticate }),
     });
     logger.info("API server started", { port: server.port });
 
@@ -44,6 +49,7 @@ async function startApi() {
         shutdownPromise = (async () => {
           server.stop(true);
           await store.close();
+          await auth.close().catch(() => {});
           logger.info("API server stopped");
         })();
       }
@@ -53,6 +59,7 @@ async function startApi() {
     process.once("SIGTERM", () => void shutdown());
   } catch (error) {
     await store.close().catch(() => {});
+    await auth.close().catch(() => {});
     logger.error("API startup failed", {
       message:
         error instanceof Error ? error.message : "Unknown startup error.",

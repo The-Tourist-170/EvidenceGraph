@@ -345,6 +345,7 @@ export async function reportNode(state, { llm, reportStore }) {
     claims,
     limitations,
     sourceIds,
+    sources: state.sources.slice(0, 50),
   };
   const saved = reportStore?.saveReport
     ? await reportStore.saveReport({

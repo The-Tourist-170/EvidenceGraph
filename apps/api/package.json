@@ -8,11 +8,12 @@
     "start": "bun src/index.js"
   },
   "dependencies": {
+    "@evidencegraph/auth": "workspace:*",
     "@evidencegraph/config": "workspace:*",
     "@evidencegraph/object-storage": "workspace:*",
+    "@evidencegraph/persistence": "workspace:*",
     "@evidencegraph/queue": "workspace:*",
     "@evidencegraph/shared": "workspace:*",
-    "zod": "^3.24.2",
-    "@evidencegraph/persistence": "workspace:*"
+    "zod": "^3.24.2"
   }
 }

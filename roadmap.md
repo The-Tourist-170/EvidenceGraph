@@ -17,7 +17,7 @@
 - [x] Phase 4 — Persistence and knowledge
 - [x] Phase 5 — External service integrations
 - [x] Phase 6 — AI orchestration and advanced retrieval
-- [ ] Phase 7 — User experience
+- [x] Phase 7 — User experience
 
 Each completed phase has a tutorial under `docs/tutorials/`. Live provider
 results require values in a local `.env`; automated tests use local MCP fixture

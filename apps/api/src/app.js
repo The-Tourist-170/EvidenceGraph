@@ -290,6 +290,7 @@ function createRateLimiter({ maxRequests, windowMs, now }) {
 export function createApiHandler({
   env = process.env,
   authenticate = localIdentity,
+  auth,
   store = createMemoryStore(),
   now = Date.now,
   rateLimit = 120,
@@ -303,6 +304,16 @@ export function createApiHandler({
   });
 
   async function dispatch(request, url) {
+    if (url.pathname.startsWith("/api/auth/")) {
+      if (!auth) {
+        throw new ApiError(
+          503,
+          "AUTH_NOT_CONFIGURED",
+          "Authentication is not configured.",
+        );
+      }
+      return auth.instance.handler(request);
+    }
     if (request.method === "GET" && url.pathname === "/health") {
       return jsonResponse(z.object({ status: z.literal("ok") }).strict(), {
         status: "ok",
@@ -347,6 +358,30 @@ export function createApiHandler({
     }
     const identity = identityResult.data;
     checkRateLimit(identity);
+
+    if (url.pathname === `${apiBase}/workspaces` && request.method === "GET") {
+      const workspaces = auth?.listWorkspaces
+        ? await auth.listWorkspaces(identity.userId)
+        : [
+            {
+              id: identity.workspaceId,
+              role: "owner",
+              createdAt: new Date().toISOString(),
+            },
+          ];
+      return jsonResponse(
+        z.array(
+          z
+            .object({
+              id: z.string().min(1),
+              role: z.string().min(1),
+              createdAt: z.string(),
+            })
+            .strict(),
+        ),
+        workspaces,
+      );
+    }
 
     const tasksPath = `${apiBase}/research-tasks`;
     if (url.pathname === tasksPath && request.method === "POST") {

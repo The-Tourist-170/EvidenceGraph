@@ -19,5 +19,8 @@
   "devDependencies": {
     "drizzle-kit": "^0.31.11"
   },
-  "exports": "./src/index.js"
+  "exports": {
+    ".": "./src/index.js",
+    "./schema": "./src/schema.js"
+  }
 }

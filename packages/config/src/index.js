@@ -105,6 +105,13 @@ const mcpSchema = z.object({
   MCP_SEARCH_MAX_RESULTS: z.coerce.number().int().min(1).max(50).default(10),
 });
 
+const authSchema = z.object({
+  AUTH_SECRET: z.string().min(32),
+  AUTH_URL: optionalUrl,
+  AUTH_TRUSTED_ORIGINS: optionalText,
+  AUTH_ENABLE_SIGN_UP: booleanFlag.default(true),
+});
+
 const observabilitySchema = z.object({
   LANGSMITH_TRACING: booleanFlag.default(false),
   LANGSMITH_API_KEY: optionalText,
@@ -545,6 +552,36 @@ export function getMcpSearchConfig(env = process.env) {
  * @param {Record<string, string | undefined>} [env=process.env]
  * @returns {{ enabled: boolean, apiKey?: string, project: string, endpoint?: string }}
  */
+export function getAuthConfig(env = process.env) {
+  if (env.NODE_ENV === "production") {
+    const missing = ["AUTH_SECRET", "AUTH_URL"].filter((key) => !env[key]);
+    if (missing.length > 0) {
+      throw new Error(
+        `Missing authentication configuration: ${missing.join(", ")}.`,
+      );
+    }
+  }
+  const secret =
+    env.AUTH_SECRET || "local-development-auth-secret-minimum-32-chars";
+  const result = authSchema.safeParse({ ...env, AUTH_SECRET: secret });
+  if (!result.success) {
+    const invalid = result.error.issues.map((issue) => issue.path.join("."));
+    throw new Error(
+      `Invalid authentication configuration: ${invalid.join(", ")}.`,
+    );
+  }
+  const trustedOrigins = (result.data.AUTH_TRUSTED_ORIGINS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return {
+    secret: result.data.AUTH_SECRET,
+    url: result.data.AUTH_URL ?? `http://localhost:${env.PORT ?? 3000}`,
+    trustedOrigins,
+    enableSignUp: result.data.AUTH_ENABLE_SIGN_UP,
+  };
+}
+
 export function getObservabilityConfig(env = process.env) {
   const result = observabilitySchema.safeParse(env);
   if (!result.success) {

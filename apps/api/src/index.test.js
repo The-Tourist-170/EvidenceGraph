@@ -221,6 +221,80 @@ describe("API envelopes and request validation", () => {
   });
 });
 
+describe("authentication routes", () => {
+  function createAuthHandler(overrides = {}) {
+    const auth = {
+      instance: {
+        handler: async () =>
+          Response.json({ ok: true, handled: "by-auth" }, { status: 200 }),
+      },
+      listWorkspaces: async (userId) => [
+        {
+          id: `workspace-${userId}`,
+          role: "owner",
+          createdAt: "2026-10-31T00:00:00.000Z",
+        },
+      ],
+      ...overrides,
+    };
+    return createApiHandler({
+      env: { NODE_ENV: "test" },
+      auth,
+      authenticate: () => ({ userId: "user-1", workspaceId: "workspace-1" }),
+    });
+  }
+
+  test("delegates public auth routes to the auth handler", async () => {
+    const handleRequest = createAuthHandler();
+    const response = await handleRequest(
+      new Request("http://localhost/api/auth/sign-in/email", {
+        method: "POST",
+        body: "{}",
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, handled: "by-auth" });
+  });
+
+  test("returns 503 when auth routes are requested without configuration", async () => {
+    const handleRequest = createApiHandler({ env: { NODE_ENV: "test" } });
+    const response = await handleRequest(
+      new Request("http://localhost/api/auth/sign-in/email", {
+        method: "POST",
+        body: "{}",
+      }),
+    );
+    expect(response.status).toBe(503);
+    expect((await response.json()).error.code).toBe("AUTH_NOT_CONFIGURED");
+  });
+
+  test("lists workspaces for the authenticated identity", async () => {
+    const handleRequest = createAuthHandler();
+    const response = await handleRequest(
+      new Request("http://localhost/api/v1/workspaces"),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      data: [
+        {
+          id: "workspace-user-1",
+          role: "owner",
+          createdAt: "2026-10-31T00:00:00.000Z",
+        },
+      ],
+    });
+  });
+
+  test("fails closed for protected routes in production without auth", async () => {
+    const handleRequest = createApiHandler({ env: { NODE_ENV: "production" } });
+    const response = await handleRequest(
+      new Request("http://localhost/api/v1/workspaces"),
+    );
+    expect(response.status).toBe(503);
+    expect((await response.json()).error.code).toBe("AUTH_NOT_CONFIGURED");
+  });
+});
+
 describe("research task lifecycle", () => {
   test("creates, lists, tracks, and returns a synthetic result", async () => {
     const harness = createHarness();

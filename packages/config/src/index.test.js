@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  getAuthConfig,
   getDatabaseConfig,
   getEmbeddingConfig,
   getIntegrationConfig,
@@ -273,5 +274,45 @@ describe("external integration configuration", () => {
     expect(() => getObservabilityConfig({ LANGSMITH_TRACING: "true" })).toThrow(
       "LANGSMITH_API_KEY",
     );
+  });
+});
+
+describe("authentication configuration", () => {
+  test("provides a development fallback and parses trusted origins", () => {
+    expect(
+      getAuthConfig({
+        NODE_ENV: "test",
+        AUTH_SECRET: "x".repeat(40),
+        AUTH_TRUSTED_ORIGINS: "http://localhost:3001, https://app.example.test",
+        AUTH_ENABLE_SIGN_UP: "false",
+      }),
+    ).toEqual({
+      secret: "x".repeat(40),
+      url: "http://localhost:3000",
+      trustedOrigins: ["http://localhost:3001", "https://app.example.test"],
+      enableSignUp: false,
+    });
+    expect(
+      getAuthConfig({ NODE_ENV: "development" }).secret.length,
+    ).toBeGreaterThanOrEqual(32);
+  });
+
+  test("fails closed in production without an explicit secret", () => {
+    expect(() => getAuthConfig({ NODE_ENV: "production" })).toThrow(
+      "AUTH_SECRET",
+    );
+    expect(() =>
+      getAuthConfig({
+        NODE_ENV: "production",
+        AUTH_SECRET: "short",
+        AUTH_URL: "https://app.example.test",
+      }),
+    ).toThrow("AUTH_SECRET");
+    expect(() =>
+      getAuthConfig({
+        NODE_ENV: "production",
+        AUTH_SECRET: "x".repeat(40),
+      }),
+    ).toThrow("AUTH_URL");
   });
 });
