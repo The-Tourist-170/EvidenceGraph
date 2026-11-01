@@ -133,6 +133,17 @@ export function createWorkerRuntime({
   worker.on("stalled", (jobId) => {
     logger.error("Worker job stalled", { queue: queueName, jobId });
   });
+  worker.on("progress", (job, progress) => {
+    logger.info("Worker job progress", {
+      queue: queueName,
+      worker: workerName,
+      jobId: job.id,
+      executionId: progress?.executionId,
+      percent: progress?.percent,
+      stage: progress?.stage,
+      message: progress?.message,
+    });
+  });
   worker.on("failed", (job, error) => {
     logger.error("Worker job failed", {
       queue: queueName,

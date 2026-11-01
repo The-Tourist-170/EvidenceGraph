@@ -11,7 +11,7 @@ export const researchConfigSchema = z
     depth: z.enum(["quick", "standard", "deep"]).default("standard"),
     maxSources: z.number().int().min(1).max(50).default(10),
     maxIterations: z.number().int().min(1).max(10).default(3),
-    maxDurationSeconds: z.number().int().min(10).max(300).default(120),
+    maxDurationSeconds: z.number().int().min(10).max(300).default(300),
     requiresApproval: z.boolean().default(false),
   })
   .strict();
@@ -89,6 +89,14 @@ export const documentStatusSchema = z.enum([
   "cancelled",
 ]);
 
+export const documentProgressSchema = z
+  .object({
+    percent: z.number().int().min(0).max(100),
+    stage: z.string().min(1).max(80).optional(),
+    message: z.string().min(1).max(500),
+  })
+  .strict();
+
 export const documentSchema = z
   .object({
     id: z.string().uuid(),
@@ -97,6 +105,8 @@ export const documentSchema = z
     size: z.number().int().positive(),
     status: documentStatusSchema,
     createdAt: z.string().datetime(),
+    progress: documentProgressSchema.optional(),
+    error: z.string().max(500).optional(),
   })
   .strict();
 

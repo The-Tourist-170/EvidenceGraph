@@ -36,27 +36,27 @@ export default function SignInPage() {
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-5 px-6">
       <Link
         href="/"
-        className="text-sm font-semibold uppercase tracking-widest text-slate-500"
+        className="text-sm font-semibold uppercase tracking-widest text-[var(--muted)]"
       >
         EvidenceGraph
       </Link>
-      <h1 className="text-2xl font-semibold text-slate-900">
+      <h1 className="text-2xl font-semibold text-[var(--ink)]">
         {mode === "sign-in" ? "Sign in" : "Create your account"}
       </h1>
       <form onSubmit={submit} className="flex flex-col gap-4">
         {mode === "sign-up" && (
-          <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
+          <label className="flex flex-col gap-1 text-sm font-medium text-[var(--ink-soft)]">
             Name
             <input
               required
               value={name}
               onChange={(event) => setName(event.target.value)}
               autoComplete="name"
-              className="rounded-md border border-slate-300 px-3 py-2 text-slate-900 focus:border-slate-500 focus:outline-none"
+              className="field text-base"
             />
           </label>
         )}
-        <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
+        <label className="flex flex-col gap-1 text-sm font-medium text-[var(--ink-soft)]">
           Email
           <input
             required
@@ -64,10 +64,10 @@ export default function SignInPage() {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             autoComplete="email"
-            className="rounded-md border border-slate-300 px-3 py-2 text-slate-900 focus:border-slate-500 focus:outline-none"
+            className="field text-base"
           />
         </label>
-        <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
+        <label className="flex flex-col gap-1 text-sm font-medium text-[var(--ink-soft)]">
           Password
           <input
             required
@@ -78,18 +78,18 @@ export default function SignInPage() {
             autoComplete={
               mode === "sign-in" ? "current-password" : "new-password"
             }
-            className="rounded-md border border-slate-300 px-3 py-2 text-slate-900 focus:border-slate-500 focus:outline-none"
+            className="field text-base"
           />
         </label>
         {error && (
-          <p role="alert" className="text-sm text-red-700">
+          <p role="alert" className="text-sm text-[var(--danger)]">
             {error}
           </p>
         )}
         <button
           type="submit"
           disabled={pending}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-60"
+          className="button-primary w-full disabled:cursor-not-allowed disabled:opacity-50"
         >
           {pending ? "Working…" : mode === "sign-in" ? "Sign in" : "Sign up"}
         </button>
@@ -97,7 +97,7 @@ export default function SignInPage() {
       <button
         type="button"
         onClick={() => setMode(mode === "sign-in" ? "sign-up" : "sign-in")}
-        className="text-left text-sm text-slate-600 underline hover:text-slate-900"
+        className="text-left text-sm text-[var(--muted)] underline hover:text-[var(--ink)]"
       >
         {mode === "sign-in"
           ? "Need an account? Sign up"

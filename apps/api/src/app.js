@@ -520,9 +520,19 @@ export function createApiHandler({
         const document = await store.getDocument(id, identity);
         return jsonResponse(
           z
-            .object({ id: z.string().uuid(), status: documentStatusSchema })
+            .object({
+              id: z.string().uuid(),
+              status: documentStatusSchema,
+              progress: documentSchema.shape.progress,
+              error: documentSchema.shape.error,
+            })
             .strict(),
-          { id: document.id, status: document.status },
+          {
+            id: document.id,
+            status: document.status,
+            ...(document.progress ? { progress: document.progress } : {}),
+            ...(document.error ? { error: document.error } : {}),
+          },
         );
       }
       if (action === "content" && request.method === "GET") {
@@ -567,6 +577,7 @@ export function createApiHandler({
         !(Number.isInteger(error?.status) && typeof error?.code === "string")
       ) {
         logger.error("Unhandled API error", {
+          component: "api",
           method: request.method,
           path: url.pathname,
         });
@@ -574,6 +585,7 @@ export function createApiHandler({
       response = errorResponse(error);
     }
     logger.info("API request", {
+      component: "api",
       method: request.method,
       path: url.pathname,
       status: response.status,

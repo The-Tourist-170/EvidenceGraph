@@ -65,25 +65,61 @@ export const api = {
   eventsUrl: (id) => `/api/v1/research-tasks/${id}/events`,
 };
 
-export async function uploadDocument(file) {
+export function uploadDocument(file, { onProgress } = {}) {
   const form = new FormData();
   form.append("file", file);
-  const response = await fetch("/api/v1/documents", {
-    method: "POST",
-    credentials: "include",
-    headers: activeWorkspaceId ? { "x-workspace-id": activeWorkspaceId } : {},
-    body: form,
-  });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    const error = payload?.error;
-    throw new ApiClientError(
-      response.status,
-      error?.code ?? "UPLOAD_FAILED",
-      error?.message ?? "Document upload failed.",
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/v1/documents");
+    xhr.withCredentials = true;
+    if (activeWorkspaceId) {
+      xhr.setRequestHeader("x-workspace-id", activeWorkspaceId);
+    }
+    xhr.upload.addEventListener("progress", (event) => {
+      if (!event.lengthComputable) return;
+      onProgress?.({
+        loaded: event.loaded,
+        total: event.total,
+        percent: Math.min(100, Math.round((event.loaded / event.total) * 100)),
+      });
+    });
+    xhr.addEventListener("load", () => {
+      let payload;
+      try {
+        payload = JSON.parse(xhr.responseText);
+      } catch {
+        reject(
+          new ApiClientError(
+            xhr.status,
+            "INVALID_RESPONSE",
+            "Upload returned an invalid response.",
+          ),
+        );
+        return;
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const error = payload?.error;
+        reject(
+          new ApiClientError(
+            xhr.status,
+            error?.code ?? "UPLOAD_FAILED",
+            error?.message ?? "Document upload failed.",
+          ),
+        );
+        return;
+      }
+      resolve(payload.data);
+    });
+    xhr.addEventListener("error", () =>
+      reject(
+        new ApiClientError(0, "NETWORK_ERROR", "Upload connection failed."),
+      ),
     );
-  }
-  return payload.data;
+    xhr.addEventListener("abort", () =>
+      reject(new ApiClientError(0, "UPLOAD_ABORTED", "Upload was cancelled.")),
+    );
+    xhr.send(form);
+  });
 }
 
 export const authApi = {

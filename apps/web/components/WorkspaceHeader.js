@@ -25,37 +25,50 @@ export default function WorkspaceHeader({ user, onSignOut }) {
   }, []);
 
   return (
-    <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
-      <div className="flex items-center gap-3">
+    <header className="workspace-topbar">
+      <div className="flex min-w-0 items-center gap-4">
         <Link
-          href="/"
-          className="text-sm font-semibold uppercase tracking-widest text-slate-500"
+          href="/workspace"
+          className="flex shrink-0 items-center gap-3 text-[var(--ink)]"
         >
-          EvidenceGraph
+          <span className="grid h-9 w-9 place-items-center rounded-[10px] border border-[#74343e] bg-[linear-gradient(145deg,#53242c,#201316)] font-mono text-sm font-bold text-[#ff7980] shadow-[0_0_26px_rgb(181_45_58_/_17%)]">
+            EG
+          </span>
+          <span className="hidden sm:block">
+            <span className="block text-[13px] font-semibold tracking-wide">
+              EvidenceGraph
+            </span>
+            <span className="mt-0.5 block font-mono text-[9px] uppercase tracking-[0.16em] text-[var(--quiet)]">
+              Research console
+            </span>
+          </span>
         </Link>
+        <span className="hidden h-7 w-px bg-[var(--line-soft)] sm:block" />
         {workspaces.length > 0 && (
-          <label className="flex items-center gap-2 text-sm text-slate-600">
-            Workspace
+          <label className="flex min-w-0 items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--quiet)]">
+            <span className="hidden sm:inline">Workspace</span>
             <select
-              defaultValue={workspaces[0]?.id}
+              value={workspaces[0]?.id}
               onChange={(event) => setActiveWorkspaceId(event.target.value)}
-              className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900"
+              className="min-h-11 max-w-40 truncate rounded-md border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1.5 text-xs normal-case tracking-normal text-[var(--ink-soft)]"
             >
               {workspaces.map((workspace) => (
                 <option key={workspace.id} value={workspace.id}>
-                  {workspace.id.slice(0, 12)} ({workspace.role})
+                  {workspace.id.slice(0, 12)} / {workspace.role}
                 </option>
               ))}
             </select>
           </label>
         )}
       </div>
-      <div className="flex items-center gap-3">
-        <span className="text-sm text-slate-600">{user?.email}</span>
+      <div className="flex shrink-0 items-center gap-3">
+        <span className="hidden max-w-52 truncate text-xs text-[var(--muted)] sm:block">
+          {user?.email}
+        </span>
         <button
           type="button"
           onClick={onSignOut}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100"
+          className="button-secondary px-3"
         >
           Sign out
         </button>

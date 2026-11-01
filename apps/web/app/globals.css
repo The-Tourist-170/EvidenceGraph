@@ -1,10 +1,303 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: light;
-  font-family: Arial, Helvetica, sans-serif;
+  color-scheme: dark;
+  --canvas: #100b0d;
+  --canvas-raised: #181012;
+  --surface: #1d1417;
+  --surface-raised: #26191d;
+  --surface-active: #311d22;
+  --line: #44272d;
+  --line-soft: #332126;
+  --ink: #f2e8e9;
+  --ink-soft: #d3c0c3;
+  --muted: #a38b90;
+  --quiet: #755e63;
+  --signal: #d44a55;
+  --signal-bright: #f36a73;
+  --signal-deep: #8e2834;
+  --success: #83c5a1;
+  --warning: #e7b970;
+  --danger: #ff747c;
+  --focus: #ff858c;
+  --radius: 12px;
+  --radius-small: 8px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: var(--canvas);
 }
 
 body {
+  min-height: 100vh;
   margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(ellipse at 82% 8%, rgb(103 29 40 / 18%), transparent 36rem),
+    radial-gradient(ellipse at 5% 95%, rgb(82 22 34 / 12%), transparent 32rem),
+    var(--canvas);
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+label[for],
+input[type="checkbox"],
+input[type="file"] {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+::selection {
+  color: #fff;
+  background: var(--signal-deep);
+}
+
+.workspace-shell {
+  min-height: 100vh;
+  padding: 22px clamp(16px, 3vw, 42px) 40px;
+}
+
+.workspace-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 58px;
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 15px;
+}
+
+.workspace-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+  gap: clamp(20px, 3vw, 40px);
+  max-width: 1480px;
+  margin: 30px auto 0;
+}
+
+.workspace-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+  border-right: 1px solid var(--line-soft);
+  padding-right: clamp(16px, 2vw, 28px);
+}
+
+.workspace-canvas {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-width: 0;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(145deg, rgb(39 23 28 / 96%), rgb(24 16 18 / 98%));
+  box-shadow: 0 18px 44px rgb(0 0 0 / 20%);
+}
+
+.panel-soft {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-small);
+  background: rgb(30 20 23 / 84%);
+}
+
+.eyebrow {
+  color: var(--signal-bright);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.field {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: #120d0f;
+  padding: 10px 12px;
+  color: var(--ink);
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+
+.field::placeholder {
+  color: var(--quiet);
+}
+
+.field:hover {
+  border-color: #684049;
+}
+
+.field:focus {
+  border-color: var(--signal);
+  outline: none;
+  background: #180f12;
+}
+
+.field:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.button-primary {
+  min-height: 44px;
+  border: 1px solid #e05a64;
+  border-radius: var(--radius-small);
+  background: linear-gradient(135deg, #c73d49, #8d2633);
+  padding: 9px 15px;
+  color: #fff4f4;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.015em;
+  box-shadow: 0 7px 20px rgb(150 38 53 / 20%);
+  transition:
+    filter 130ms ease,
+    transform 130ms ease;
+}
+
+.button-primary:hover:not(:disabled) {
+  filter: brightness(1.12);
+  transform: translateY(-1px);
+}
+
+.button-secondary {
+  min-height: 44px;
+  border: 1px solid #54333a;
+  border-radius: var(--radius-small);
+  background: #24171a;
+  padding: 7px 12px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+  transition:
+    border-color 130ms ease,
+    background-color 130ms ease;
+}
+
+.button-secondary:hover:not(:disabled) {
+  border-color: #8d4650;
+  background: #301a20;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--signal-bright);
+  box-shadow: 0 0 12px rgb(243 106 115 / 70%);
+}
+
+.loader-ring {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 2px solid rgb(243 106 115 / 24%);
+  border-top-color: var(--signal-bright);
+  border-radius: 50%;
+  animation: spin 850ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.progress-track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #392328;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #9e2d39, #f36a73);
+  box-shadow: 0 0 12px rgb(243 106 115 / 35%);
+  transition: width 220ms ease;
+}
+
+.progress-indeterminate {
+  width: 38%;
+  animation: travel 1.35s ease-in-out infinite alternate;
+}
+
+@keyframes travel {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(165%);
+  }
+}
+
+@media (max-width: 860px) {
+  .workspace-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-rail {
+    order: 2;
+    border-right: 0;
+    border-top: 1px solid var(--line-soft);
+    padding: 22px 0 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .workspace-shell {
+    padding: 14px 14px 28px;
+  }
+
+  .workspace-topbar {
+    align-items: flex-start;
+  }
+
+  .workspace-layout {
+    margin-top: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

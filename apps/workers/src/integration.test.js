@@ -198,6 +198,10 @@ describe("Phase 3 independent workers", () => {
         (value) => value.status === "completed",
       );
       expect(ingested.status).toBe("completed");
+      expect(ingested.progress).toMatchObject({
+        percent: 100,
+        stage: "ingestion-ready",
+      });
       const download = await store.getDocumentContent(document.id, owner);
       expect(new TextDecoder().decode(download.bytes)).toBe(
         "Phase 3 worker object fixture.",

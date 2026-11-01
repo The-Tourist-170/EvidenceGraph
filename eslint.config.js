@@ -26,6 +26,7 @@ export default [
         File: "readonly",
         FormData: "readonly",
         Headers: "readonly",
+        XMLHttpRequest: "readonly",
         document: "readonly",
         fetch: "readonly",
         window: "readonly",

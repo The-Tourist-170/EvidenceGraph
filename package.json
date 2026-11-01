@@ -1,11 +1,12 @@
 {
   "name": "evidencegraph",
+  "devDependencies": {
+    "@eslint/js": "^9.25.0",
+    "eslint": "^9.25.0",
+    "eslint-plugin-react": "^7.37.5",
+    "prettier": "^3.5.3"
+  },
   "private": true,
-  "type": "module",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "scripts": {
     "dev:api": "bun --cwd apps/api dev",
     "dev:workers:research": "bun --cwd apps/workers dev:research",
@@ -24,10 +25,9 @@
     "test:phase7:e2e": "bun apps/web/scripts/phase7-e2e-smoke.js",
     "verify:release": "bun scripts/verify-release.js"
   },
-  "devDependencies": {
-    "@eslint/js": "^9.25.0",
-    "eslint": "^9.25.0",
-    "eslint-plugin-react": "^7.37.5",
-    "prettier": "^3.5.3"
-  }
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
 }

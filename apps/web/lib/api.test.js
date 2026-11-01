@@ -8,9 +8,11 @@ import {
 } from "./api.js";
 
 const originalFetch = globalThis.fetch;
+const originalXhr = globalThis.XMLHttpRequest;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  globalThis.XMLHttpRequest = originalXhr;
   setActiveWorkspaceId(null);
 });
 
@@ -51,21 +53,51 @@ describe("web API client", () => {
     expect(error.message).toBe("Only failed tasks can be retried.");
   });
 
-  test("uploads documents with credentials and workspace headers", async () => {
+  test("uploads documents with byte progress, credentials, and workspace headers", async () => {
     let captured;
-    globalThis.fetch = async (path, options) => {
-      captured = { path, options };
-      return jsonResponse({ data: { id: "doc-1" } }, 201);
-    };
+    class FakeXhr {
+      constructor() {
+        this.upload = {
+          addEventListener: (_type, callback) => {
+            this.uploadProgress = callback;
+          },
+        };
+        this.listeners = {};
+      }
+      open(method, path) {
+        this.method = method;
+        this.path = path;
+      }
+      setRequestHeader(name, value) {
+        this.headers ??= {};
+        this.headers[name] = value;
+      }
+      addEventListener(type, callback) {
+        this.listeners[type] = callback;
+      }
+      send(body) {
+        captured = this;
+        this.body = body;
+        this.uploadProgress({ lengthComputable: true, loaded: 50, total: 100 });
+        this.status = 201;
+        this.responseText = JSON.stringify({ data: { id: "doc-1" } });
+        this.listeners.load();
+      }
+    }
+    globalThis.XMLHttpRequest = FakeXhr;
     setActiveWorkspaceId("workspace-7");
+    const progress = [];
     const document = await uploadDocument(
       new File(["hello"], "hello.txt", { type: "text/plain" }),
+      { onProgress: (value) => progress.push(value) },
     );
     expect(document).toEqual({ id: "doc-1" });
     expect(captured.path).toBe("/api/v1/documents");
-    expect(captured.options.method).toBe("POST");
-    expect(captured.options.headers["x-workspace-id"]).toBe("workspace-7");
-    expect(captured.options.body).toBeInstanceOf(FormData);
+    expect(captured.method).toBe("POST");
+    expect(captured.withCredentials).toBe(true);
+    expect(captured.headers["x-workspace-id"]).toBe("workspace-7");
+    expect(captured.body).toBeInstanceOf(FormData);
+    expect(progress).toEqual([{ loaded: 50, total: 100, percent: 50 }]);
   });
 
   test("returns null for a missing session and surfaces auth failures", async () => {

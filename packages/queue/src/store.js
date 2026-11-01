@@ -177,7 +177,19 @@ function publicTask(record) {
   };
 }
 
-function publicDocument(record) {
+function publicDocument(record, workerProgress, workerError) {
+  const progress =
+    workerProgress &&
+    Number.isInteger(workerProgress.percent) &&
+    typeof workerProgress.message === "string"
+      ? {
+          percent: Math.max(0, Math.min(100, workerProgress.percent)),
+          message: workerProgress.message.slice(0, 500),
+          ...(typeof workerProgress.stage === "string"
+            ? { stage: workerProgress.stage.slice(0, 80) }
+            : {}),
+        }
+      : undefined;
   return {
     id: record.id,
     filename: record.filename,
@@ -185,6 +197,10 @@ function publicDocument(record) {
     size: record.size,
     status: record.status,
     createdAt: record.createdAt,
+    ...(progress ? { progress } : {}),
+    ...(record.status === "failed" && typeof workerError === "string"
+      ? { error: workerError.slice(0, 500) }
+      : {}),
   };
 }
 
@@ -627,12 +643,6 @@ export function createBullMqStore({
       } else if (type === "failed") {
         await transitionDocument(jobId, "queued");
       }
-      logger.info("Queue document event", {
-        queue: documentIngestionQueueName,
-        jobId,
-        event: type,
-        state: queueStatus(state),
-      });
     } catch (error) {
       logger.error("Failed to process document queue event", {
         queue: documentIngestionQueueName,
@@ -1274,7 +1284,7 @@ export function createBullMqStore({
       await transitionDocument(id, state);
       record.status = state;
     }
-    return publicDocument(record);
+    return publicDocument(record, job.progress, job.failedReason);
   }
 
   async function getDocumentContent(id, owner) {

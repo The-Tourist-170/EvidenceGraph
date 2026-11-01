@@ -305,7 +305,7 @@ describe("research task lifecycle", () => {
       depth: "standard",
       maxSources: 10,
       maxIterations: 3,
-      maxDurationSeconds: 120,
+      maxDurationSeconds: 300,
       requiresApproval: false,
     });
 
@@ -685,6 +685,42 @@ describe("server-sent events", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({
       error: { code: "INVALID_LAST_EVENT_ID" },
+    });
+  });
+});
+
+describe("document ingestion progress response", () => {
+  test("returns real worker stage progress in document status", async () => {
+    const documentId = "00000000-0000-4000-8000-000000000099";
+    const document = {
+      id: documentId,
+      filename: "sample.pdf",
+      mediaType: "application/pdf",
+      size: 4096,
+      status: "processing",
+      createdAt: new Date().toISOString(),
+      progress: {
+        percent: 65,
+        stage: "chunk-persistence",
+        message: "Saving normalized document chunks.",
+      },
+    };
+    const handleRequest = createApiHandler({
+      env: { NODE_ENV: "test" },
+      authenticate: () => ({ userId: "user-a", workspaceId: "workspace-a" }),
+      store: { getDocument: async () => document },
+    });
+    const response = await handleRequest(
+      new Request(`http://localhost/api/v1/documents/${documentId}/status`),
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toMatchObject({
+      id: documentId,
+      status: "processing",
+      progress: {
+        percent: 65,
+        stage: "chunk-persistence",
+      },
     });
   });
 });

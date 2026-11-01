@@ -90,7 +90,9 @@ export async function executeDocumentIngestion(
   await context.reportProgress({
     percent: 100,
     stage: "ingestion-ready",
-    message: "The document is ready for Phase 5 embeddings and indexing.",
+    message: embeddings
+      ? "Document text and vectors are indexed for research."
+      : "Document text and chunks are ready; vector indexing is not configured.",
   });
   return {
     documentId: job.data.documentId,
