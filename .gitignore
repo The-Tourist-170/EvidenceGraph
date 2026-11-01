@@ -1,10 +1,8 @@
-02_langgraph_agent_architecture.svg
 
 # Environment secrets
 .env
 .env.*
 !.env.example
-03_advanced_rag_architecture.svg
 project_info.md
 roadmap.md
 !roadmap.md

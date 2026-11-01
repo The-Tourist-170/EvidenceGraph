@@ -1,73 +1,122 @@
+<div align="center">
+
 # EvidenceGraph
 
-An agentic deep-research platform: submit a question, let background workers
-gather and verify evidence from local documents, a knowledge graph, and external
-MCP search, then read a source-grounded report with clickable citations.
+### Research that shows its work.
 
-Built with Bun, BullMQ, PostgreSQL, Qdrant, Neo4j, MinIO, LangGraph, and
-Next.js — no web framework on the API side (`Bun.serve()` with Fetch handlers).
+Ask a question. Search your documents and the web. Review evidence, verify claims, and read a cited report — with each source one click away.
 
-## Architecture at a glance
+[![Bun](https://img.shields.io/badge/Bun-1.4.3-fbf0df?logo=bun&logoColor=141414)](https://bun.sh)
+[![JavaScript](https://img.shields.io/badge/JavaScript-ESM-f7df1e?logo=javascript&logoColor=141414)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
+[![Next.js](https://img.shields.io/badge/Next.js-16-111111?logo=next.js)](https://nextjs.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169e1?logo=postgresql&logoColor=white)](https://www.postgresql.org)
+[![LangGraph](https://img.shields.io/badge/LangGraph-workflows-7b2cbf)](https://langchain-ai.github.io/langgraphjs/)
+[![MCP](https://img.shields.io/badge/tools-MCP-5b8c5a)](https://modelcontextprotocol.io)
 
-| Layer    | Technology            | Role                                                    |
-| -------- | --------------------- | ------------------------------------------------------- |
-| API      | Bun + native Fetch    | Requests, SSE, auth, readiness                          |
-| Queues   | Valkey + BullMQ       | Job dispatch, retries, cancellation markers             |
-| Workers  | Bun processes         | Research graph execution, document ingestion            |
-| Metadata | PostgreSQL + Drizzle  | Tasks, events, documents, chunks, reports, users        |
-| Vectors  | Qdrant                | Dense + BM25 sparse chunk vectors, hybrid search        |
-| Graph    | Neo4j                 | Documents, entities, claims, relationships              |
-| Objects  | MinIO (S3)            | Uploaded document bytes                                 |
-| Auth     | Better Auth           | Sessions, users, workspace membership                   |
-| AI       | LangChain / LangGraph | Planning → retrieval → verification → approval → report |
-| UI       | Next.js + Tailwind    | Sign-in, workspace, live progress, reports              |
+**Bun · BullMQ · Valkey · PostgreSQL · Qdrant · Neo4j · MinIO · LangGraph · Better Auth · Next.js**
 
-Detailed diagrams: `01_system_architecture.svg`, `02_langgraph_agent_architecture.svg`,
-`03_advanced_rag_architecture.svg`.
+</div>
 
-## Prerequisites
+---
 
-- [Bun](https://bun.sh) 1.4.3+
-- Docker with Compose (this project uses [OrbStack](https://orbstack.dev) on macOS)
+## What it does
+
+- **Research workflows** — plan, gather evidence, evaluate coverage, verify claims, and compose reports with LangGraph.
+- **Hybrid retrieval** — dense semantic vectors and sparse term search, fused with Reciprocal Rank Fusion and reranking.
+- **Your documents** — upload PDF, text, or Markdown; extract, chunk, embed, and index with visible ingestion progress.
+- **External search** — call web-search tools through MCP over stdio or Streamable HTTP. Retrieved content is treated as untrusted evidence.
+- **Review and resume** — pause at a checkpoint for plan approval, then continue the same research thread.
+- **Workspace isolation** — Better Auth sessions establish identity; workspace membership is validated server-side.
+- **Traceable reports** — citations navigate to their sources; revisions and execution events are persisted.
+
+## Architecture
+
+The system architecture is shown below; the SVG is rendered directly from the repository so it stays versioned with the implementation.
+
+<div align="center">
+  <img src="./01_system_architecture.svg" alt="EvidenceGraph system architecture: web workspace, Bun API, queues, workers, LangGraph, storage, and external services" width="100%" />
+  <br />
+  <sub>High-level system architecture · <a href="./01_system_architecture.svg">open diagram</a></sub>
+</div>
+
+<details>
+  <summary>More architecture diagrams</summary>
+  <ul>
+    <li><a href="./02_langgraph_agent_architecture.svg">LangGraph agent architecture</a></li>
+    <li><a href="./03_advanced_rag_architecture.svg">Advanced RAG architecture</a></li>
+  </ul>
+</details>
+
+| Service                | Technology                  | Responsibility                                             |
+| ---------------------- | --------------------------- | ---------------------------------------------------------- |
+| Web                    | Next.js + Tailwind          | Sign-in, workspace, live progress, documents, reports      |
+| API                    | Bun `Bun.serve()` + Fetch   | Auth, validation, task/document routes, SSE, readiness     |
+| Workers                | Bun + BullMQ                | Research graph execution and document ingestion            |
+| Queue / events         | Valkey + BullMQ             | Dispatch, retries, cancellation markers, event streams     |
+| Metadata / checkpoints | PostgreSQL + Drizzle        | Users, workspaces, tasks, chunks, reports, LangGraph state |
+| Vector search          | Qdrant                      | Dense and sparse chunk vectors with tenant filters         |
+| Knowledge graph        | Neo4j                       | Documents, entities, claims, relationships                 |
+| Object storage         | MinIO (S3 API)              | Uploaded document bytes                                    |
+| Authentication         | Better Auth                 | Accounts, sessions, workspace identity                     |
+| AI integrations        | LangChain + LangGraph + MCP | Model adapters, tool use, retrieval, verification          |
+
+See the architecture diagrams: [`01_system_architecture.svg`](./01_system_architecture.svg), [`02_langgraph_agent_architecture.svg`](./02_langgraph_agent_architecture.svg), and [`03_advanced_rag_architecture.svg`](./03_advanced_rag_architecture.svg).
 
 ## Quick start
 
+### Requirements
+
+- [Bun](https://bun.sh) 1.4.3+
+- Docker with Compose ([OrbStack](https://orbstack.dev) is used for local development on macOS)
+
+### Install and configure
+
 ```sh
-# 1. Configure
-cp .env.example .env          # local placeholders work; add provider keys for real AI
-
-# 2. Install
+cp .env.example .env
 bun install
+```
 
-# 3. Infrastructure (Valkey, MinIO, PostgreSQL, Qdrant, Neo4j)
+`.env.example` contains local infrastructure settings and provider placeholders. Never commit `.env` or expose provider keys to the browser.
+
+### Start infrastructure
+
+```sh
 docker compose up -d
-docker compose ps             # all five should be healthy
-
-# Worker containers are opt-in (avoid duplicate consumers with the host
-# workers started below). Only start them instead of terminal 2:
-#   docker compose --profile workers up -d
-# Note: the slim worker image has no npx, so MCP stdio web search requires
-# the host workers; containerized workers need provider values in .env.
-
-# 4. Database schema
+docker compose ps
 bun run db:migrate
+```
 
-# 5. API (terminal 1, port 3000)
+The default Compose profile starts infrastructure only. This avoids duplicate queue consumers when host workers are started in the next step. Containerized workers are optional:
+
+```sh
+docker compose --profile workers up -d
+```
+
+### Start the application
+
+Open three terminals from the repository root:
+
+```sh
+# Terminal 1 — API, http://localhost:3000
 NODE_ENV=development bun run dev:api
+```
 
-# 6. Workers (terminal 2)
+```sh
+# Terminal 2 — host workers
 bun run dev:workers:research
 bun run dev:workers:documents
+```
 
-# 7. Web UI (terminal 3, port 3001)
+```sh
+# Terminal 3 — web app, http://localhost:3001
 API_ORIGIN=http://localhost:3000 bun --cwd apps/web dev
 ```
 
-Open <http://localhost:3001>, create an account, and submit a research question.
+Open <http://localhost:3001>, create an account, and start a research run.
 
-### Service ports
+### Local service ports
 
-Host ports are remapped to avoid clashing with other local projects:
+Host ports are remapped to avoid conflicts with other projects on the machine.
 
 | Service           | Host                      | Container       |
 | ----------------- | ------------------------- | --------------- |
@@ -79,115 +128,117 @@ Host ports are remapped to avoid clashing with other local projects:
 | API               | `localhost:3000`          | —               |
 | Web               | `localhost:3001`          | —               |
 
-## Provider configuration (real AI)
+## Configure real providers
 
-All LLM/search configuration lives in `.env` — never hardcode keys, model names,
-or base URLs. Placeholders in `.env.example` are safe for local development;
-development without providers runs the deterministic synthetic path.
+All provider settings are read from `.env` and validated centrally. The required LLM values are:
 
 ```dotenv
-LLM_BASE_URL=https://api.example.com/v1
-LLM_MODEL_NAME=replace-with-your-model
-LLM_API_KEY=replace-with-your-api-key
-
-# Enable the real integration path outside production (production is always on)
+LLM_BASE_URL=https://your-openai-compatible-gateway/v1
+LLM_MODEL_NAME=your-chat-model
+LLM_API_KEY=your-api-key
 AI_INTEGRATIONS_ENABLED=true
-
-# Optional: embeddings, rerank endpoint, MCP search transport/URL/token
-# EMBEDDING_MODEL_NAME=...   RERANK_ENDPOINT=...   MCP_SEARCH_TRANSPORT=stdio|http
 ```
 
-Honest limits:
-
-- **Web search** requires an MCP server (`MCP_SEARCH_TRANSPORT`). Without one,
-  real research fails with `WEB_SEARCH_UNAVAILABLE` — production never
-  substitutes mock results.
-- **No fabricated output.** Automated tests use local MCP fixture servers and
-  mocked model clients; live-provider results are never claimed by tests.
-
-### Authentication
+Optional integrations:
 
 ```dotenv
-AUTH_SECRET=<32+ characters, required in production>
-AUTH_URL=http://localhost:3000          # required in production
-AUTH_TRUSTED_ORIGINS=http://localhost:3001
+# Embeddings; falls back to LLM_BASE_URL and LLM_API_KEY if omitted.
+EMBEDDING_BASE_URL=https://your-embedding-gateway/v1
+EMBEDDING_MODEL_NAME=your-embedding-model
+EMBEDDING_API_KEY=your-embedding-key
+EMBEDDING_DIMENSIONS=1024
+
+# Reranking; without this, retrieval uses a deterministic lexical fallback.
+RERANK_ENDPOINT=https://your-rerank-service/v2/rerank
+RERANK_MODEL_NAME=your-rerank-model
+RERANK_API_KEY=your-rerank-key
+
+# MCP search over stdio, for example Firecrawl MCP.
+MCP_SEARCH_TRANSPORT=stdio
+MCP_SEARCH_COMMAND=npx
+MCP_SEARCH_ARGS=["-y","firecrawl-mcp"]
+MCP_SEARCH_TOOL=firecrawl_search
+MCP_SEARCH_TOKEN=your-search-token
+MCP_SEARCH_TOKEN_ENV=FIRECRAWL_API_KEY
+
+# Or use a remote Streamable HTTP MCP endpoint.
+# MCP_SEARCH_TRANSPORT=http
+# MCP_SEARCH_URL=https://your-mcp-server.example/mcp
+# MCP_SEARCH_TOKEN=your-mcp-bearer-token
 ```
 
-The API fails closed without these in production.
+**No fabricated provider output:** automated tests use local MCP fixtures and mocked model clients. If production web search is not configured, the system returns `WEB_SEARCH_UNAVAILABLE`; it does not substitute fake results. Free-tier providers may impose their own model access, credit, or rate limits.
 
-## Tests and checks
+## Authentication
+
+Local defaults are in `.env.example`. Production must set a real `AUTH_SECRET` (32+ characters) and `AUTH_URL`; startup fails closed when either is missing.
+
+The browser uses the Next.js same-origin proxy for `/api/auth/*` and `/api/v1/*`. The API derives identity from the Better Auth session cookie. `x-workspace-id` selects scope only after membership validation; it cannot establish identity or grant workspace access.
+
+## Development checks
 
 ```sh
-bun test                        # unit + contract tests (real services skipped)
+bun test
 bun run lint
 bun run format:check
 bun --cwd apps/web build
-bun run db:generate             # generate SQL migrations after schema edits
+bun run db:generate
+```
 
-# Real-service integration suites (require docker compose up -d)
-bun run test:phase2:integration   # Valkey + MinIO queue/object behavior
+Local quality checks are intentional; this repository does not configure GitHub Actions.
+
+### Real-service suites
+
+These require `docker compose up -d`:
+
+```sh
+bun run test:phase2:integration   # Valkey, BullMQ, MinIO
 bun run test:phase3:integration   # workers, cancellation, timeout, recovery
-bun run test:phase4:integration   # PostgreSQL/Qdrant/Neo4j/MinIO + legacy import
-bun run test:phase6:integration   # PostgreSQL LangGraph checkpoints (+ Phase 4)
-bun run test:phase7:integration   # Better Auth against PostgreSQL
+bun run test:phase4:integration   # PostgreSQL, Qdrant, Neo4j, MinIO
+bun run test:phase6:integration   # LangGraph checkpoints + storage integration
+bun run test:phase7:integration   # Better Auth + PostgreSQL
+```
 
-# HTTP end-to-end smoke (requires API :3000 and web :3001 running)
+HTTP end-to-end smoke requires the API and web server on ports 3000 and 3001:
+
+```sh
 bun run test:phase7:e2e
+```
 
-# Release verification: migrations from an empty schema + volume safety
+Release checks migrations against an empty temporary schema and confirms existing database, Valkey, and MinIO data survives:
+
+```sh
 bun run verify:release
 ```
 
-Local checks only — this project intentionally has no GitHub Actions
-configuration.
-
-## Migration safety
-
-- Development: the API applies migrations at startup.
-- Production: run `bun run db:migrate` explicitly before deploying; workers
-  only verify the schema and never race migrations.
-- Migrations are additive and idempotent; they create tables in an empty
-  database without touching existing MinIO/Valkey/PostgreSQL volumes.
-
-## Documentation
-
-Each phase has a beginner-friendly tutorial with architecture, walkthrough,
-verification, troubleshooting, and interview Q&A:
-
-- `docs/tutorials/phase-0-project-initialization.md`
-- `docs/tutorials/phase-1-api-and-streaming.md`
-- `docs/tutorials/phase-2-asynchronous-delivery.md`
-- `docs/tutorials/phase-3-background-execution.md`
-- `docs/tutorials/phase-4-persistence-and-knowledge.md`
-- `docs/tutorials/phase-5-external-integrations.md`
-- `docs/tutorials/phase-6-ai-orchestration-and-retrieval.md`
-- `docs/tutorials/phase-7-user-experience.md`
-- `docs/final-evaluation.md` — architecture, verification matrix, limitations
-
-`roadmap.md` is the phase-by-phase development plan with an implementation
-status checklist.
-
 ## Troubleshooting
 
-- **Port conflicts** — see the port table above; the `ash-agent` containers on
-  this machine own the default ports, do not stop them.
-- **`403 INVALID_ORIGIN` on sign-in/sign-up** — the API process was started
-  before `AUTH_TRUSTED_ORIGINS` existed (restart it), or the browser origin is
-  not allowed. Localhost variants are trusted automatically in development;
-  add LAN origins (e.g. `http://192.168.1.13:3001`) to `AUTH_TRUSTED_ORIGINS`.
-- **Research results are synthetic** — the research worker did not enable real
-  integrations (a duplicate worker without `.env` is consuming the queue, or
-  `AI_INTEGRATIONS_ENABLED` is unset). Stop containerized workers
-  (`docker compose stop research-worker document-worker`) and restart the host
-  workers; their startup logs print `Research integrations initialized`.
-- **`429 RATE_LIMITED`** — the API allows 120 requests per minute per
-  workspace; a stuck UI polling loop or test scripts sharing an identity can
-  exhaust it. Wait a minute or raise `rateLimit` in `createApiHandler`.
-- **`503 AUTH_NOT_CONFIGURED`** — production started without `AUTH_SECRET` /
-  `AUTH_URL`, or the API was built without an auth instance.
-- **`WEB_SEARCH_UNAVAILABLE`** — configure `MCP_SEARCH_TRANSPORT` and its
-  command/URL in `.env`.
-- **Docker unavailable** — if you use OrbStack, check the daemon with
-  `orb status` and start it.
-- **Qdrant client errors** — keep `@qdrant/js-client-rest` pinned to `1.13.0`
-  to match the `v1.13.4` server.
+- **`403 INVALID_ORIGIN`** — restart the API after changing `.env`; add any non-local web origin to `AUTH_TRUSTED_ORIGINS`. Development automatically trusts `localhost:3001` and `127.0.0.1:3001`.
+- **Research is synthetic** — check that the research worker started with `.env` and logs `Research integrations initialized`. Stop optional Compose worker containers if they are competing with host workers: `docker compose stop research-worker document-worker`.
+- **`WEB_SEARCH_UNAVAILABLE`** — configure `MCP_SEARCH_TRANSPORT` and its command or URL.
+- **`429 RATE_LIMITED`** — the API applies a per-workspace request limit; a polling loop can exhaust it. The workspace refresh interval is throttled, and the limit can be configured in `createApiHandler`.
+- **Embedding/rerank provider errors** — the ingestion panel and worker logs show the classified provider error. Check model access, vector dimensions, provider credits, and rate limits.
+- **Docker ports already in use** — use the remapped host ports above. Do not stop the unrelated `ash-agent` containers that own the default ports.
+- **Qdrant API mismatch** — the JS client is pinned to `1.13.0` to match the `v1.13.4` server.
+
+## Repository layout
+
+```text
+apps/
+  api/       Bun HTTP API and route tests
+  workers/   research and document worker processes
+  web/       Next.js research workspace
+packages/
+  ai/        MCP, LLM adapters, LangGraph workflow
+  auth/      Better Auth and workspace identity
+  config/    centralized Zod environment validation
+  persistence/ PostgreSQL, migrations, Neo4j graph repository
+  queue/     BullMQ, Valkey, task and event coordination
+  retrieval/ Qdrant vectors and hybrid search
+  shared/    errors and terminal logging
+  object-storage/ MinIO S3 adapter
+```
+
+## License
+
+No license file is currently included. Add one before distributing this repository under an open-source license.
